@@ -21,7 +21,7 @@ Options d'URL : `?quality=performance|equilibre|qualite` (préréglage graphique
 
 ```bash
 npm test             # 46 tests unitaires de la simulation (Vitest)
-npm run build && npm run test:e2e   # 26 vérifications en jeu dans Chromium headless
+npm run build && npm run test:e2e   # 30 vérifications en jeu dans Chromium headless
 ```
 
 Les tests en jeu (`scripts/e2e.mjs`) pilotent l'interface et l'API de diagnostic
@@ -38,7 +38,26 @@ Variable `CHROMIUM_PATH` pour indiquer un autre exécutable Chromium.
 | Temps | **Espace** pause, **[** ralentir, **]** accélérer |
 | Outils divins | **S** sélection, **M** déplacer, **C** créer, **P** pousser, **K** collision, **X** détruire |
 | Divers | **A** analyse, **V** mode caméra, **Tab** carte, **H** masquer l'interface, **Ctrl+Z/Y/S** |
-| Caméra libre | ZQSD / WASD, E / C, Maj pour accélérer |
+| Vol libre (**G**) | ZQSD / WASD, E / C, Maj pour accélérer, molette = vitesse de croisière |
+| Atterrir / décoller (**L**) | au sol : ZQSD / WASD, glisser pour regarder, molette ou E / C pour l'altitude |
+
+## Monde ouvert
+
+L'univers est **continu**, sans écran de chargement ni fondu entre les échelles :
+
+- **Vol libre** partout, avec une vitesse qui s'adapte à l'objet le plus proche (mètres par
+  seconde au sol, multiples de la vitesse de la lumière entre les étoiles — pouvoir divin).
+- En sortant d'un système stellaire (≈ 5 années-lumière), on se retrouve **parmi les étoiles de
+  la galaxie simulée** ; en s'approchant d'une étoile (≈ 3,5 al), on entre dans **son système,
+  généré à la demande** à partir d'une graine (reproductible) ; les systèmes modifiés sont conservés.
+- En sortant de la galaxie, on rejoint la **toile cosmique**, générée par secteurs autour de
+  la caméra ; en plongeant vers une galaxie, on y entre, dans la bonne orientation.
+- Le **ciel** de chaque système est fait des vraies étoiles de la galaxie (direction et éclat
+  réels) et des vraies galaxies voisines : ce que l'on voit de loin est ce que l'on rejoint.
+- **Pilote automatique** : cliquer sur une étoile voisine (★) dans le ciel, ou « Voyager » sur
+  une étoile/galaxie.
+- **Atterrissage** sur toute planète ou lune solide : terrain local détaillé (relief, mers,
+  biomes, neige), ciel atmosphérique jour/crépuscule/nuit, rotation réelle de la planète.
 
 ## Contenu
 

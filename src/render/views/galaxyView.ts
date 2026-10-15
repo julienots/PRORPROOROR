@@ -8,6 +8,8 @@ import { ringTexture, softTexture } from '../objects/common';
 import { createHaloMaterial } from '../objects/stellarMesh';
 import { LOGDEPTH_FRAG_HEAD, LOGDEPTH_FRAG_MAIN, LOGDEPTH_VERT_HEAD, LOGDEPTH_VERT_MAIN } from '../objects/common';
 import type { View, PickResult } from './view';
+import { GalacticSky } from '../objects/galacticSky';
+import { glowTexture } from '../objects/common';
 import type { Game } from '../../game';
 
 const STAR_VERT = /* glsl */ `
@@ -58,11 +60,19 @@ export class GalaxyView implements View {
   private solMarker: THREE.Sprite;
   private sky: Sky;
   private hii: THREE.Points | null = null;
+  /** Galaxies voisines réelles, à l'infini. */
+  private backdrop = new GalacticSky();
+  private backdropKey = '';
+  /** Halos des étoiles les plus proches de l'œil (vol interstellaire). */
+  private nearSprites: THREE.Sprite[] = [];
+  private nearFrame = 0;
+  nearest: { idx: number; dist: number } = { idx: -1, dist: Infinity };
 
   constructor(private game: Game) {
     this.sky = new Sky(777, 4000);
     this.sky.bandVisible = false;
     this.sky.intensity = 0.4;
+    this.sky.randomStarsVisible = false;
     this.scene.add(this.sky.group);
     this.sel = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTexture(), depthTest: false, transparent: true }));
     this.sel.renderOrder = 20;
@@ -70,6 +80,28 @@ export class GalaxyView implements View {
     this.solMarker = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTexture(), color: 0xffd060, depthTest: false, transparent: true }));
     this.solMarker.renderOrder = 19;
     this.scene.add(this.solMarker);
+    this.scene.add(this.backdrop.group);
+    for (let i = 0; i < 48; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+      sp.visible = false;
+      sp.renderOrder = 3;
+      this.nearSprites.push(sp);
+      this.scene.add(sp);
+    }
+  }
+
+  /** Étoile la plus proche d'un point (kal). */
+  nearestStar(p: { x: number; y: number; z: number }): { idx: number; dist: number } {
+    const s = this.sim;
+    let best = -1, bd = Infinity;
+    if (!s) return { idx: -1, dist: Infinity };
+    const P = s.pos;
+    for (let i = 0; i < s.n; i++) {
+      const dx = P[i * 3] - p.x, dy = P[i * 3 + 1] - p.y, dz = P[i * 3 + 2] - p.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < bd) { bd = d2; best = i; }
+    }
+    return { idx: best, dist: Math.sqrt(bd) };
   }
 
   setGalaxy(sim: GalaxySim, params: GalaxyParams): void {
@@ -165,8 +197,9 @@ export class GalaxyView implements View {
 
   enter(): void {
     const rig = this.game.engine.rig;
-    rig.minDistance = 0.0025;
-    rig.maxDistance = (this.params?.radius ?? 50) * 14;
+    // monde ouvert : l'entrée dans un système et la sortie vers le cosmos dépendent de la position de l'œil
+    rig.minDistance = 1e-7;
+    rig.maxDistance = 1e7;
   }
 
   exit(): void {
@@ -185,7 +218,6 @@ export class GalaxyView implements View {
     if (sim.n !== this.builtN) this.rebuild();
     const game = this.game;
     const rig = game.engine.rig;
-    rig.maxDistance = (this.params?.radius ?? 50) * 14 * Math.max(1, sim.components.length);
     const eye = rig.eye;
     const pr = game.engine.renderer.getPixelRatio();
     for (const o of [this.stars, this.dust!, this.hii!]) {
@@ -244,6 +276,47 @@ export class GalaxyView implements View {
     });
     game.labels.end();
     this.sky.setPixelRatio(pr);
+    // fond : vraies galaxies voisines
+    const cg = game.currentGalaxy;
+    if (cg && cg.params.id !== this.backdropKey) {
+      this.backdropKey = cg.params.id;
+      this.backdrop.buildGalaxies(cg.cosmic, game.cosmic.galaxiesNear(cg.cosmic.x, cg.cosmic.y, cg.cosmic.z, 45));
+    }
+    this.backdrop.setPixelRatio(pr);
+    // étoiles proches de l'œil : halos lumineux (voyage interstellaire)
+    this.nearest = this.nearestStar(eye);
+    if (this.nearFrame++ % 6 === 0) this.updateNearStars(eye, pf);
+    for (const sp of this.nearSprites) {
+      if (!sp.visible) continue;
+      const i = sp.userData.idx as number;
+      sp.position.set(sim.pos[i * 3] - eye.x, sim.pos[i * 3 + 1] - eye.y, sim.pos[i * 3 + 2] - eye.z);
+      const d = sp.position.length();
+      const px = clamp(60 * Math.sqrt(sp.userData.lum as number) / Math.max(d * 1000, 0.05), 3, 70);
+      sp.scale.setScalar((px * d) / pf);
+    }
+  }
+
+  private updateNearStars(eye: { x: number; y: number; z: number }, pf: number): void {
+    const sim = this.sim!;
+    const R = 0.05; // 50 al
+    const cand: { i: number; d: number }[] = [];
+    for (let i = 0; i < sim.n; i++) {
+      const dx = sim.pos[i * 3] - eye.x, dy = sim.pos[i * 3 + 1] - eye.y, dz = sim.pos[i * 3 + 2] - eye.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < R * R) cand.push({ i, d: d2 });
+    }
+    cand.sort((a, b) => a.d - b.d);
+    this.nearSprites.forEach((sp, k) => {
+      const c = cand[k];
+      sp.visible = !!c;
+      if (!c) return;
+      const m = sim.starMass[c.i];
+      const T = sim.age[c.i] < 0.25 ? 12000 : 3600 + m * 1800;
+      const [r, g, b] = blackbodyRGB(T);
+      (sp.material as THREE.SpriteMaterial).color.setRGB(r, g, b);
+      sp.userData = { idx: c.i, lum: Math.pow(Math.max(m, 0.1), 2) };
+    });
+    void pf;
   }
 
   private label(id: string, text: string, idx: number, cls: string): void {

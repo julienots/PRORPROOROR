@@ -36,6 +36,29 @@ export class UI {
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
   private lastStatus = 0;
+  private hud!: HTMLElement;
+
+  toggleFlight(): void {
+    const g = this.game;
+    const rig = g.engine.rig;
+    if (g.surface) g.ow.leaveSurface();
+    rig.mode = rig.mode === 'free' ? 'orbit' : 'free';
+    this.toast(rig.mode === 'free' ? 'Vol libre : ZQSD/WASD pour avancer, glisser pour regarder, E/C monter/descendre, Maj accélère, molette = vitesse. Volez jusqu\'aux étoiles et aux galaxies : l\'univers se génère autour de vous.' : 'Caméra orbitale.', 'info');
+    g.audio.play('click');
+  }
+
+  toggleLanding(): void {
+    const g = this.game;
+    if (g.surface) { g.ow.leaveSurface(); return; }
+    if (g.level !== 'system' && g.level !== 'planet') { this.toast('Rejoignez d\'abord un système stellaire et sélectionnez une planète.', 'warn'); return; }
+    let b = g.selectedBody();
+    if (!b?.planet || b.planet.gasGiant) {
+      // planète solide la plus proche de la caméra
+      const e = g.engine.rig.eye;
+      b = [...g.world.bodies].filter((x) => x.planet && !x.planet.gasGiant).sort((p, q) => Math.hypot(p.pos.x - e.x, p.pos.y - e.y, p.pos.z - e.z) - Math.hypot(q.pos.x - e.x, q.pos.y - e.y, q.pos.z - e.z))[0];
+    }
+    if (b) g.ow.land(b.id);
+  }
 
   constructor(private game: Game, parent: HTMLElement) {
     this.root = h('div', { id: 'ui' });
@@ -45,6 +68,8 @@ export class UI {
     this.toasts = h('div', { class: 'toasts' });
     this.root.appendChild(this.toasts);
     this.buildTimeline();
+    this.hud = h('div', { class: 'hud', 'data-testid': 'hud' });
+    this.root.appendChild(this.hud);
     this.props = new PropertiesPanel(game, this.root);
     this.panels = new Panels(game, this.root, this);
     game.bus.on('toast', (t) => this.toast(t.text, t.kind));
@@ -104,6 +129,8 @@ export class UI {
     this.toolbar.appendChild(this.analysisBtn);
     this.camBtn = pw('◉', 'Caméra', 'Changer de mode de caméra (V)', () => this.cycleCamera(), 'camera-mode') as HTMLButtonElement;
     this.toolbar.appendChild(this.camBtn);
+    this.toolbar.appendChild(pw('➤', 'Vol libre', 'Voler librement à travers l\'univers (G) — ZQSD/WASD, molette = vitesse', () => this.toggleFlight(), 'toggle-flight'));
+    this.toolbar.appendChild(pw('⛰', 'Atterrir', 'Se poser sur la planète sélectionnée / décoller (L)', () => this.toggleLanding(), 'toggle-land'));
     this.toolbar.appendChild(pw('▦', 'Carte', 'Carte de l\'univers (Tab)', () => this.panels.open('map'), 'open-map'));
     this.toolbar.appendChild(pw('✺', 'Big Bang', 'Laboratoire cosmologique : créer un univers', () => { void g.goBigBang(); }, 'open-bigbang'));
     this.toolbar.appendChild(pw('⌬', 'Cosmologie', 'Paramètres cosmologiques et fins d\'univers', () => this.panels.open('cosmo'), 'open-cosmo'));
@@ -217,6 +244,11 @@ export class UI {
     this.updatePause();
     this.camBtn.querySelector('span')!.textContent = CAMERA_MODE_LABEL[g.engine.rig.mode];
     this.updateHistoryButtons();
+    const hd = g.ow.hud;
+    const lines = [hd.mode, hd.speed && `Vitesse : ${hd.speed}`, hd.altitude && `Altitude : ${hd.altitude}`, hd.nearest && `Plus proche : ${hd.nearest}`].filter(Boolean);
+    const html = lines.map((l) => `<div>${l}</div>`).join('');
+    if (this.hud.innerHTML !== html) this.hud.innerHTML = html;
+    this.hud.style.display = lines.length ? '' : 'none';
     this.props.tick();
     this.panels.tick();
   }
@@ -233,7 +265,7 @@ export class UI {
         if (k === 's') { e.preventDefault(); g.save(); }
         return;
       }
-      if (g.engine.rig.mode === 'free' && ['w', 'z', 'q', 'a', 's', 'd', 'e', 'c', ' '].includes(k)) return;
+      if ((g.engine.rig.mode === 'free' || g.surface) && ['w', 'z', 'q', 'a', 's', 'd', 'e', 'c', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) return;
       switch (k) {
         case ' ': e.preventDefault(); g.togglePause(); break;
         case '[': g.changeSpeed(-1); break;
@@ -251,6 +283,8 @@ export class UI {
         case 'escape': this.panels.closeAll(); g.setTool('select'); g.select(null); break;
         case 'f1': e.preventDefault(); this.panels.open('help'); break;
         case 'h': document.body.classList.toggle('hide-ui'); break;
+        case 'g': this.toggleFlight(); break;
+        case 'l': this.toggleLanding(); break;
       }
     });
   }

@@ -17,7 +17,7 @@ export class Sky {
   constructor(seed: number, count = 9000) {
     this.group.renderOrder = -10;
     this.bandMat = new THREE.ShaderMaterial({
-      uniforms: { intensity: { value: 1 }, normal: { value: new THREE.Vector3(0.3, 0.9, 0.2).normalize() }, seed: { value: (seed % 1000) / 10 }, tint: { value: new THREE.Color(1, 1, 1) } },
+      uniforms: { intensity: { value: 1 }, normal: { value: new THREE.Vector3(0.3, 0.9, 0.2).normalize() }, seed: { value: (seed % 1000) / 10 }, tint: { value: new THREE.Color(1, 1, 1) }, centerDir: { value: new THREE.Vector3(1, 0, 0) }, centerBoost: { value: 0 } },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
         void main() {
@@ -27,13 +27,16 @@ export class Sky {
           gl_Position.z = gl_Position.w * 0.99999;
         }`,
       fragmentShader: /* glsl */ `
-        uniform float intensity; uniform vec3 normal; uniform float seed; uniform vec3 tint;
+        uniform float intensity; uniform vec3 normal; uniform float seed; uniform vec3 tint; uniform vec3 centerDir; uniform float centerBoost;
         varying vec3 vDir;
         ${NOISE_GLSL}
         void main() {
           vec3 d = normalize(vDir);
           float lat = dot(d, normal);
           float band = exp(-lat * lat * 28.0);
+          // le bulbe galactique rend la bande plus brillante vers le centre
+          float toC = max(dot(d, centerDir), 0.0);
+          band *= 1.0 + centerBoost * pow(toC, 6.0) * (1.0 + 2.0 * exp(-lat * lat * 60.0));
           float n = fbm3(d * 3.0 + seed, 6);
           float n2 = fbm3(d * 9.0 - seed, 4);
           float dust = smoothstep(0.1, 0.5, fbm3(d * 5.0 + seed * 2.0, 5)) * exp(-lat * lat * 90.0);
@@ -46,8 +49,11 @@ export class Sky {
           gl_FragColor = vec4(col * intensity * tint, 1.0);
         }`,
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       side: THREE.BackSide,
+      // additif : laisse apparaître la couleur de fond (ciel atmosphérique vu du sol)
+      blending: THREE.AdditiveBlending,
+      transparent: true,
     });
     this.band = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), this.bandMat);
     this.band.frustumCulled = false;
@@ -101,7 +107,7 @@ export class Sky {
           gl_FragColor = vec4(vCol * a * a * intensity, 1.0);
         }`,
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       blending: THREE.AdditiveBlending,
       transparent: true,
     });
@@ -122,6 +128,17 @@ export class Sky {
 
   setPixelRatio(pr: number): void {
     this.starMat.uniforms.pixelRatio.value = pr;
+  }
+
+  /** Aligne la bande lumineuse sur le plan réel de la galaxie et sur son centre. */
+  setGalacticFrame(normal: THREE.Vector3, center: THREE.Vector3, boost = 2.5): void {
+    (this.bandMat.uniforms.normal.value as THREE.Vector3).copy(normal).normalize();
+    (this.bandMat.uniforms.centerDir.value as THREE.Vector3).copy(center).normalize();
+    this.bandMat.uniforms.centerBoost.value = boost;
+  }
+
+  set randomStarsVisible(v: boolean) {
+    this.stars.visible = v;
   }
 
   setTint(c: THREE.Color): void {

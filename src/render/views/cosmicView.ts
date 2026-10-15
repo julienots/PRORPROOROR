@@ -124,7 +124,7 @@ export class CosmicView implements View {
 
   enter(): void {
     const rig = this.game.engine.rig;
-    rig.minDistance = 0.08;
+    rig.minDistance = 1e-4;
     rig.maxDistance = 2500;
   }
 

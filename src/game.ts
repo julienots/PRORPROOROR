@@ -21,6 +21,7 @@ import { MicroView } from './render/views/microView';
 import { BigBangView } from './render/views/bigBangView';
 import type { View } from './render/views/view';
 import { AudioEngine } from './audio/audio';
+import { OpenWorld } from './openworld';
 import { SaveStore } from './save/storage';
 import {
   emptyUniverse, snapshotWorld, restoreWorld, type UniverseSave, type ScaleLevel, type WorldSnapshot,
@@ -106,6 +107,10 @@ export class Game {
   private pushState: { id: number; x: number; y: number; line: SVGLineElement | null } | null = null;
   /** Clé du système courant. */
   systemKey = 'sol';
+  /** Monde ouvert : passages d'échelle continus, vol libre, atterrissage, pilote automatique. */
+  readonly ow: OpenWorld = new OpenWorld(this);
+  get surface() { return this.ow.surface; }
+  isTransitioning(): boolean { return this.transitioning; }
   /** Index de l'étoile du Soleil dans la Voie lactée. */
   solIndex = 0;
   frameCount = 0;
@@ -173,10 +178,20 @@ export class Game {
         case 'planet':
           this.world.step(speed * dt);
           break;
-        case 'galaxy':
+        case 'galaxy': {
+          // caméra co-mobile : près d'une étoile, elle est entraînée par la rotation galactique
+          const gv = this.views.galaxy as GalaxyView;
+          const rig = this.engine.rig;
+          const n = gv.nearestStar(rig.eye);
+          const before = n.idx >= 0 && n.dist < 0.08 ? gv.starPosition(n.idx) : null;
           this.galaxy?.step(speed * dt, this.engine.settings.galaxyStars > 40000 ? 6 : 10);
+          if (before && rig.mode !== 'follow') {
+            const after = gv.starPosition(n.idx);
+            rig.translate({ x: after.x - before.x, y: after.y - before.y, z: after.z - before.z });
+          }
           this.universe.cosmicTime += (speed * dt) / 1000;
           break;
+        }
         case 'cosmic':
           this.universe.cosmicTime = clamp(this.universe.cosmicTime + speed * dt, 0, Math.min(1e4, Number.isFinite(this.cosmoHistory.tEnd) ? this.cosmoHistory.tEnd : 1e4));
           break;
@@ -191,8 +206,10 @@ export class Game {
       this.world.lastReport = { requested: 0, achieved: 0, substeps: 0, mode: 'nbody', ms: 0 };
     }
     this.world.updateMergers(dt);
+    this.ow.preCamera(realDt);
     this.updateCameraLimits();
     this.engine.rig.update(realDt);
+    this.ow.postCamera();
     this.view.update(realDt);
     this.engine.render(this.view.scene, dt);
     this.bus.emit('frame', this.frameCount);
@@ -234,6 +251,7 @@ export class Game {
 
   private updateCameraLimits(): void {
     const rig = this.engine.rig;
+    if (this.ow.surface) return;
     if (this.level === 'system' || this.level === 'planet') {
       const sel = this.selectedBody();
       const followed = sel && (rig.mode === 'follow' || rig.mode === 'cinematic' || rig.isFlying() || this.isNear(sel));
@@ -268,6 +286,11 @@ export class Game {
 
   private onZoomLimit(dir: 'in' | 'out'): void {
     if (this.transitioning) return;
+    if (this.ow.surface) {
+      if (dir === 'out') this.ow.leaveSurface();
+      else void this.goMicro();
+      return;
+    }
     const L = this.level;
     if (dir === 'out') {
       if (L === 'system' || L === 'planet') void this.goGalaxy();
@@ -304,7 +327,7 @@ export class Game {
     }
   }
 
-  private switchView(level: ScaleLevel, view: View): void {
+  switchView(level: ScaleLevel, view: View): void {
     this.view.exit();
     this.view = view;
     this.level = level;
@@ -319,14 +342,14 @@ export class Game {
   }
 
   /** Mémorise l'état du système courant (persistance des conséquences). */
-  private storeCurrentSystem(): void {
+  storeCurrentSystem(): void {
     this.universe.systems[this.systemKey] = snapshotWorld(this.world, 6000);
     const keys = Object.keys(this.universe.systems);
     if (keys.length > 40) delete this.universe.systems[keys.find((k) => k !== this.systemKey)!];
   }
 
   /** Charge (ou génère) la galaxie courante. */
-  private ensureGalaxy(): void {
+  ensureGalaxy(): void {
     const gid = this.universe.location.galaxyId;
     if (this.galaxy && this.currentGalaxy?.params.id === gid) return;
     let cg = this.findCosmicGalaxy(gid);
@@ -348,6 +371,11 @@ export class Game {
     (this.views.galaxy as GalaxyView).setGalaxy(this.galaxy, params);
   }
 
+  /** Mémorise les paramètres de la galaxie courante (persistance). */
+  storeGalaxyState(): void {
+    if (this.currentGalaxy) this.universe.galaxyOverrides[this.currentGalaxy.params.id] = { ...this.currentGalaxy.params };
+  }
+
   findCosmicGalaxy(id: string): CosmicGalaxy | undefined {
     if (id === 'home') return this.cosmic.sector(0, 0, 0).find((g) => g.id === 'home');
     const custom = this.universe.customGalaxies.find((g) => g.id === id);
@@ -357,6 +385,13 @@ export class Game {
 
   async goGalaxy(): Promise<void> {
     if (this.level === 'galaxy') return;
+    if (this.level === 'system' || this.level === 'planet') {
+      // monde ouvert : pas de coupure, la caméra recule continûment dans la galaxie
+      this.ow.systemToGalaxy(true);
+      const p = (this.views.galaxy as GalaxyView).starPosition(this.currentStarIndex());
+      this.engine.rig.flyTo(p, 0.6, 3);
+      return;
+    }
     await this.fadeTo(() => {
       if (this.level === 'system' || this.level === 'planet') this.storeCurrentSystem();
       this.ensureGalaxy();
@@ -379,6 +414,14 @@ export class Game {
 
   async goCosmic(): Promise<void> {
     if (this.level === 'cosmic') return;
+    if (this.level === 'galaxy' || this.level === 'system' || this.level === 'planet') {
+      if (this.level !== 'galaxy') this.ow.systemToGalaxy(true);
+      this.ow.galaxyToCosmic(true);
+      const g = this.currentGalaxy?.cosmic;
+      const p = g ? (this.views.cosmic as CosmicView).positionOf(`g${g.id}`) : null;
+      if (p) this.engine.rig.flyTo(p, 40, 3.5);
+      return;
+    }
     await this.fadeTo(() => {
       if (this.level === 'system' || this.level === 'planet') this.storeCurrentSystem();
       const cv = this.views.cosmic as CosmicView;
@@ -396,6 +439,16 @@ export class Game {
   async enterGalaxy(id: string): Promise<void> {
     const g = this.findCosmicGalaxy(id);
     if (!g) return;
+    if (this.level === 'cosmic') {
+      const p = (this.views.cosmic as CosmicView).positionOf(`g${g.id}`);
+      if (p) {
+        this.engine.rig.set(p, Math.max(g.size * 2, 0.015));
+        this.engine.rig.update(0);
+        this.ow.cosmicToGalaxy(g);
+        this.engine.rig.flyTo({ x: 0, y: 0, z: 0 }, (this.currentGalaxy?.params.radius ?? 40) * 3, 3);
+        return;
+      }
+    }
     await this.fadeTo(() => {
       this.universe.location.galaxyId = g.id;
       this.galaxy = null;
@@ -412,6 +465,16 @@ export class Game {
   /** Entre dans le système d'une étoile de la galaxie courante. */
   async enterStar(idx: number): Promise<void> {
     if (!this.galaxy || !this.currentGalaxy) return;
+    if (this.level === 'galaxy') {
+      // monde ouvert : la caméra plonge vers l'étoile, sans coupure
+      const sp = (this.views.galaxy as GalaxyView).starPosition(idx);
+      this.engine.rig.set(sp, 0.003);
+      this.engine.rig.update(0);
+      this.ow.galaxyToSystem(idx);
+      const p = this.world.primary();
+      if (p) this.engine.rig.flyTo(p.pos, this.systemExtent() * 2.2, 3);
+      return;
+    }
     const params = this.currentGalaxy.params;
     const key = params.id === 'home' && idx === this.solIndex ? 'sol' : `${params.id}:${idx}`;
     await this.fadeTo(() => {
@@ -441,7 +504,7 @@ export class Game {
     return m;
   }
 
-  private loadSystem(key: string, idx: number): void {
+  loadSystem(key: string, idx: number): void {
     this.history.clear();
     const stored = this.universe.systems[key];
     if (stored) {
@@ -542,6 +605,7 @@ export class Game {
   }
 
   focus(id: string): void {
+    if (id.startsWith('n')) { this.ow.travelToStar(Number(id.slice(1))); return; }
     const p = this.view.positionOf(id);
     if (!p) return;
     this.selectionId = id;
@@ -558,6 +622,7 @@ export class Game {
 
   /** Vue rapprochée de la surface (exploration). */
   exploreSurface(): void {
+    if (this.ow.land()) return;
     const b = this.selectedBody();
     if (!b?.planet) return;
     const rig = this.engine.rig;
@@ -1008,6 +1073,7 @@ export class Game {
   // -------------------------------------------------------------------------
 
   newUniverse(name: string, seed: number, silent = false): void {
+    if (this.ow) { this.ow.surface = null; this.ow.autopilot = null; this.engine.rig.external = null; }
     this.world.clear();
     generateSolarSystem(this.world);
     this.history.clear();
@@ -1058,6 +1124,9 @@ export class Game {
 
   /** Applique un univers chargé. */
   applySave(u: UniverseSave): void {
+    this.ow.surface = null;
+    this.ow.autopilot = null;
+    this.engine.rig.external = null;
     this.universe = u;
     this.cosmic = new CosmicGenerator(u.seed);
     (this.views.cosmic as CosmicView).reset();

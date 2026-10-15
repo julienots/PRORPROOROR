@@ -10,10 +10,10 @@ import type { Vec3 } from '../core/vec';
  * Modes : orbite (autour d'une cible), libre (vol ZQSD/WASD), suivi (cible mobile),
  * cinématique (orbite automatique lente avec dérive du zoom).
  */
-export type CameraMode = 'orbit' | 'free' | 'follow' | 'cinematic';
+export type CameraMode = 'orbit' | 'free' | 'follow' | 'cinematic' | 'surface';
 
 export const CAMERA_MODE_LABEL: Record<CameraMode, string> = {
-  orbit: 'Orbitale', free: 'Libre', follow: 'Suivi', cinematic: 'Cinématique',
+  orbit: 'Orbitale', free: 'Vol libre', follow: 'Suivi', cinematic: 'Cinématique', surface: 'Surface',
 };
 
 interface Flight {
@@ -36,7 +36,14 @@ export class CameraRig {
   freeSpeed = 0.6;
   private freePos: Vec3 = { x: 0, y: 0, z: 0 };
   private flight: Flight | null = null;
-  private keys = new Set<string>();
+  readonly keys = new Set<string>();
+  /** Vitesse de vol libre imposée (unités/s), calculée selon l'objet le plus proche. */
+  freeSpeedAbs: number | null = null;
+  /** Vitesse courante du vol libre (unités/s), avec inertie. */
+  flightVel: Vec3 = { x: 0, y: 0, z: 0 };
+  private freeEye: Vec3 | null = null;
+  /** Contrôle externe (exploration de surface) : position et orientation imposées. */
+  external: { eye: Vec3; quat: THREE.Quaternion; near: number } | null = null;
   /** Appelé quand l'utilisateur zoome au-delà des bornes (transition d'échelle). */
   onZoomLimit: ((dir: 'in' | 'out') => void) | null = null;
   /** Fonction donnant la position courante d'une cible suivie. */
@@ -140,6 +147,11 @@ export class CameraRig {
 
   zoom(factor: number): void {
     if (!Number.isFinite(factor) || factor <= 0) return;
+    if (this.mode === 'free' && !this.external) {
+      // en vol libre, la molette règle la vitesse de croisière
+      this.freeSpeed = clamp(this.freeSpeed / factor, 0.02, 50);
+      return;
+    }
     const nd = this.distance * factor;
     if (nd < this.minDistance) {
       this.distance = this.minDistance;
@@ -184,6 +196,34 @@ export class CameraRig {
     this.target = { ...target };
     this.distance = clamp(distance, this.minDistance, this.maxDistance);
     this.flight = null;
+    this.freeEye = null;
+  }
+
+  /** Place l'œil (et la cible le long de la visée) sans changer l'orientation. */
+  setEye(eye: Vec3, distance = this.distance): void {
+    const f = this.forward();
+    this.distance = clamp(distance, this.minDistance, this.maxDistance);
+    this.target = { x: eye.x + f.x * this.distance, y: eye.y + f.y * this.distance, z: eye.z + f.z * this.distance };
+    this.eye = { ...eye };
+    this.flight = null;
+    if (this.mode === 'free') this.freeEye = { ...eye };
+  }
+
+  /** Translate la caméra (et un vol en cours) : entraînement par le mouvement local. */
+  translate(d: Vec3): void {
+    this.target.x += d.x; this.target.y += d.y; this.target.z += d.z;
+    this.eye.x += d.x; this.eye.y += d.y; this.eye.z += d.z;
+    if (this.freeEye) { this.freeEye.x += d.x; this.freeEye.y += d.y; this.freeEye.z += d.z; }
+    if (this.flight) {
+      for (const p of [this.flight.from, this.flight.to]) { p.x += d.x; p.y += d.y; p.z += d.z; }
+    }
+  }
+
+  /** Oriente la caméra selon un vecteur de visée. */
+  setForward(f: Vec3): void {
+    const l = Math.hypot(f.x, f.y, f.z) || 1;
+    this.pitch = clamp(Math.asin(clamp(-f.y / l, -1, 1)), -1.55, 1.55);
+    this.yaw = Math.atan2(-f.x / l, -f.z / l);
   }
 
   update(dt: number): void {
@@ -209,9 +249,21 @@ export class CameraRig {
       // inertie
       this.velYaw *= 0.9; this.velPitch *= 0.9;
     }
+    if (this.external) {
+      // exploration de surface : la caméra est entièrement pilotée de l'extérieur
+      this.eye = { ...this.external.eye };
+      this.camera.quaternion.copy(this.external.quat);
+      this.camera.near = Math.max(1e-9, this.external.near);
+      this.camera.far = this.external.near * 1e10 + 1e3;
+      this.camera.updateProjectionMatrix();
+      this.freeEye = null;
+      return;
+    }
+    const fwd = this.forward();
     if (this.mode === 'free') {
-      const f = this.forward(), r = this.right();
-      const sp = this.distance * this.freeSpeed * dt * (this.keys.has('shift') ? 4 : 1);
+      // vol à la première personne : l'œil se déplace, la visée tourne autour de l'œil
+      if (!this.freeEye) this.freeEye = { ...this.eye };
+      const r = this.right(), u = this.up();
       let mx = 0, mz = 0, my = 0;
       if (this.keys.has('w') || this.keys.has('z') || this.keys.has('arrowup')) mz += 1;
       if (this.keys.has('s') || this.keys.has('arrowdown')) mz -= 1;
@@ -219,12 +271,27 @@ export class CameraRig {
       if (this.keys.has('d') || this.keys.has('arrowright')) mx += 1;
       if (this.keys.has('e') || this.keys.has(' ')) my += 1;
       if (this.keys.has('c')) my -= 1;
-      this.target.x += (f.x * mz + r.x * mx) * sp;
-      this.target.y += (f.y * mz + r.y * mx) * sp + my * sp;
-      this.target.z += (f.z * mz + r.z * mx) * sp;
+      const boost = this.keys.has('shift') ? 6 : 1;
+      const sp = (this.freeSpeedAbs ?? this.distance * this.freeSpeed) * boost;
+      const want = { x: (fwd.x * mz + r.x * mx + u.x * my) * sp, y: (fwd.y * mz + r.y * mx + u.y * my) * sp, z: (fwd.z * mz + r.z * mx + u.z * my) * sp };
+      // inertie (accélération/freinage progressifs)
+      const k = 1 - Math.exp(-dt * 3);
+      this.flightVel.x += (want.x - this.flightVel.x) * k;
+      this.flightVel.y += (want.y - this.flightVel.y) * k;
+      this.flightVel.z += (want.z - this.flightVel.z) * k;
+      // la vitesse ne doit pas dépasser la consigne courante (ralentissement près des objets)
+      const vl = Math.hypot(this.flightVel.x, this.flightVel.y, this.flightVel.z);
+      if (vl > sp * 1.05 && vl > 0) { const c = (sp * 1.05) / vl; this.flightVel.x *= c; this.flightVel.y *= c; this.flightVel.z *= c; }
+      this.freeEye.x += this.flightVel.x * dt;
+      this.freeEye.y += this.flightVel.y * dt;
+      this.freeEye.z += this.flightVel.z * dt;
+      this.eye = { ...this.freeEye };
+      this.target = { x: this.eye.x + fwd.x * this.distance, y: this.eye.y + fwd.y * this.distance, z: this.eye.z + fwd.z * this.distance };
+    } else {
+      this.freeEye = null;
+      this.flightVel = { x: 0, y: 0, z: 0 };
+      this.eye = { x: this.target.x - fwd.x * this.distance, y: this.target.y - fwd.y * this.distance, z: this.target.z - fwd.z * this.distance };
     }
-    const fwd = this.forward();
-    this.eye = { x: this.target.x - fwd.x * this.distance, y: this.target.y - fwd.y * this.distance, z: this.target.z - fwd.z * this.distance };
     // orientation de la caméra three.js (position fixe à l'origine)
     const look = new THREE.Vector3(fwd.x, fwd.y, fwd.z);
     this.camera.up.set(0, 1, 0);

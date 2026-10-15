@@ -94,6 +94,7 @@ export class PropertiesPanel {
       case 'planet': {
         const b = g.selectedBody();
         if (b) this.bodyPanel(b);
+        else if (g.selectionId?.startsWith('n')) this.neighborPanel(Number(g.selectionId.slice(1)));
         else this.systemPanel();
         break;
       }
@@ -114,12 +115,29 @@ export class PropertiesPanel {
   // Système stellaire
   // =========================================================================
 
+  /** Étoile voisine vue dans le ciel du système (voyage interstellaire). */
+  private neighborPanel(idx: number): void {
+    const g = this.game;
+    const sv = g.views.system as import('../render/views/systemView').SystemView;
+    const nb = sv.galSky.neighbors.find((n) => n.idx === idx);
+    const params = g.currentGalaxy?.params;
+    const key = params?.id === 'home' && idx === g.solIndex ? 'sol' : `${params?.id}:${idx}`;
+    this.section(idx === g.solIndex && params?.id === 'home' ? 'Le Soleil' : `Étoile #${idx}`,
+      readout('Distance', () => (nb ? `${nb.distLy.toPrecision(3)} années-lumière` : '—'), this.live),
+      readout('Masse (estimée)', () => (nb ? `${nb.mass.toPrecision(3)} M☉` : '—'), this.live),
+      readout('Système', () => (g.universe.systems[key] ? 'déjà visité' : 'inexploré'), this.live),
+      h('p', { class: 'note' }, badge('divin'), ' Le voyage interstellaire se fait plus vite que la lumière (pouvoir divin) ; le trajet traverse réellement la galaxie simulée.'),
+      h('div', { class: 'btnrow' }, button('Voyager vers cette étoile', () => g.ow.travelToStar(idx), 'primary', undefined, 'travel-star')),
+    );
+    this.systemPanel();
+  }
+
   private systemPanel(): void {
     const g = this.game;
     const w = g.world;
     const p = w.primary();
     this.section('Système stellaire',
-      readout('Objet central', () => (p ? `${p.name} (${KIND_LABEL[p.kind]})` : '—'), this.live),
+      readout('Objet central', () => { const c = p ?? w.bodies[0]; return c ? `${c.name} (${KIND_LABEL[c.kind]})` : '— (espace vide)'; }, this.live),
       readout('Corps massifs', () => String(w.bodies.length), this.live),
       readout('Particules (débris, gaz)', () => String(w.particles.count), this.live),
       readout('Masse totale', () => fmtMassSun(w.totalMass()), this.live),
@@ -146,6 +164,7 @@ export class PropertiesPanel {
     this.body.appendChild(h('div', { class: 'phead' }, nameInput, h('div', { class: 'kind' }, h('i', { class: `dot k-${b.kind}` }), KIND_LABEL[b.kind] ?? b.kind, ' ', sci, b.createdBy === 'player' ? badge('divin') : null)));
     this.body.appendChild(h('div', { class: 'btnrow' },
       button('Rejoindre', () => g.focus(`b${b.id}`), '', 'Vol de la caméra vers l\'objet (F)', 'focus'),
+      b.planet && !b.planet.gasGiant ? button(g.surface?.bodyId === b.id ? 'Décoller' : 'Atterrir', () => { if (g.surface?.bodyId === b.id) g.ow.leaveSurface(); else g.ow.land(b.id); this.rebuild(true); }, 'primary', 'Exploration au sol (L)', 'land') : null,
       button('Suivre', () => { g.engine.rig.mode = 'follow'; g.focus(`b${b.id}`); }),
       b.planet && !b.planet.gasGiant ? button('Surface', () => g.exploreSurface(), '', 'Exploration rapprochée de la surface', 'explore') : null,
       b.planet ? button('Microscope', () => void g.goMicro(), '', 'Plonger dans la matière de cet astre', 'microscope') : null,
@@ -355,7 +374,10 @@ export class PropertiesPanel {
         readout('Vitesse orbitale', () => `${fmt(gv.starInfo(idx)?.speedKms ?? 0, 4)} km/s`, this.live),
         readout('Population', () => ((info?.age ?? 1) < 0.25 ? 'jeune (bras spiraux)' : 'âgée'), this.live),
         readout('Système', () => (g.universe.systems[p.id === 'home' && idx === g.solIndex ? 'sol' : `${p.id}:${idx}`] ? 'visité / modifié' : 'inexploré (généré à la demande)'), this.live),
-        h('div', { class: 'btnrow' }, button('Entrer dans ce système', () => void g.enterStar(idx), 'primary', 'Génère le système stellaire (graine reproductible)', 'enter-star')),
+        h('div', { class: 'btnrow wrap' },
+          button('Voyager (pilote auto.)', () => g.ow.travelToStar(idx), 'primary', 'Vol continu jusqu\'au système', 'travel-star'),
+          button('Entrer directement', () => void g.enterStar(idx), '', 'Génère le système stellaire (graine reproductible)', 'enter-star'),
+        ),
       );
     }
     const comp = sim.components[0];
@@ -426,7 +448,10 @@ export class PropertiesPanel {
         readout('Masse stellaire', () => `${fmt(sel.stellarMass, 3)} M☉`, this.live),
         readout('Distance à la Voie lactée', () => { const p = cv.positionOf(`g${sel.id}`)!; return `${fmt(Math.hypot(p.x, p.y, p.z), 4)} Mpc physiques`; }, this.live),
         readout('Vitesse de récession', () => { const p = cv.positionOf(`g${sel.id}`)!; const H = hubbleAt(g.universe.cosmology, Math.max(g.scaleFactorNow(), 1e-6)); return `≈ ${fmt(Math.hypot(p.x, p.y, p.z) * H, 4)} km/s (loi de Hubble, H = ${fmt(H, 3)})`; }, this.live),
-        h('div', { class: 'btnrow' }, button('Entrer dans la galaxie', () => void g.enterGalaxy(sel.id), 'primary', undefined, 'enter-galaxy')),
+        h('div', { class: 'btnrow wrap' },
+          button('Voyager (pilote auto.)', () => g.ow.travelToGalaxy(sel.id), 'primary', undefined, 'travel-galaxy'),
+          button('Entrer directement', () => void g.enterGalaxy(sel.id), '', undefined, 'enter-galaxy'),
+        ),
       );
     }
     const c = g.universe.cosmology;

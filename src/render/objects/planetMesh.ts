@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Body } from '../../sim/types';
 import { buildTerrain, sampleSurface, terrainSignature, type TerrainModel } from '../../procgen/terrain';
+export { sampleSurface };
 import { NOISE_GLSL } from '../shaders/noise';
 import { LOGDEPTH_FRAG_HEAD, LOGDEPTH_FRAG_MAIN, LOGDEPTH_VERT_HEAD, LOGDEPTH_VERT_MAIN } from './common';
 
@@ -115,7 +116,7 @@ void main() {
     col += vColor * diff * lightColor[i] * sh;
     if (vWater > 0.5) {
       vec3 H = normalize(L + V);
-      col += lightColor[i] * pow(max(dot(N, H), 0.0), 120.0) * 0.35 * sh * step(0.0, ndl);
+      col += lightColor[i] * min(pow(max(dot(N, H), 0.0), 160.0) * 0.25, 0.6) * sh * step(0.0, ndl);
     }
     lit += max(ndl, 0.0) * sh;
   }
@@ -124,7 +125,7 @@ void main() {
     float c = smoothstep(0.55, 0.9, snoise(vObj * 60.0)) * smoothstep(0.3, 0.8, snoise(vObj * 9.0));
     col += vec3(1.0, 0.75, 0.4) * c * cityLights * (1.0 - smoothstep(0.0, 0.25, lit)) * 0.8;
   }
-  col += vColor * 0.012;
+  col += vColor * 0.03; // lumière cendrée / ciel nocturne
   col += vec3(1.0, 0.35, 0.08) * vEmissive * (0.8 + 0.2 * sin(time * 2.0 + vObj.x * 30.0));
   gl_FragColor = vec4(col, 1.0);
 }
@@ -314,12 +315,14 @@ export function createCloudMaterial(): THREE.ShaderMaterial {
         float n = fbm3(q, 6) * 0.5 + 0.5;
         float band = 0.6 + 0.4 * cos(lat * 9.0);
         float c = smoothstep(1.0 - coverage, 1.0 - coverage + 0.25, n * band);
-        vec3 N = normalize(vN);
+        // vus par-dessous (exploration au sol), les nuages sont éclairés à travers leur épaisseur
+        vec3 N = gl_FrontFacing ? normalize(vN) : -normalize(vN);
         vec3 col = vec3(0.0);
         for (int i = 0; i < ${MAX_LIGHTS}; i++) {
           if (i >= lightCount) break;
           vec3 L = normalize(lightPos[i] - vWorld);
-          col += cloudColor * lightColor[i] * max(dot(N, L), 0.0) * sphereShadow(vWorld, lightPos[i], lightRadius[i]);
+          float ndl = gl_FrontFacing ? max(dot(N, L), 0.0) : 0.35 + 0.5 * max(dot(-N, L), 0.0);
+          col += cloudColor * lightColor[i] * ndl * sphereShadow(vWorld, lightPos[i], lightRadius[i]);
         }
         gl_FragColor = vec4(col * c, c * 0.92);
       }`,
@@ -441,4 +444,82 @@ export function createRingMaterial(): THREE.ShaderMaterial {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+}
+
+/**
+ * Carré de terrain haute résolution centré sous le joueur (exploration au sol).
+ * Grille N×N en projection gnomonique autour de la direction `center`, plus dense au
+ * centre (déformation radiale), construite par tranches pour ne pas figer l'image.
+ */
+export class SurfacePatchBuild {
+  done = false;
+  private row = 0;
+  private positions: Float32Array;
+  private colors: Float32Array;
+  private emissive: Float32Array;
+  private water: Float32Array;
+  private indices: Uint32Array;
+  readonly center: THREE.Vector3;
+  constructor(private body: Body, private terrain: TerrainModel, center: THREE.Vector3, readonly extent: number, readonly altitude: number, readonly n = 112) {
+    this.center = center.clone().normalize();
+    const nv = (n + 1) * (n + 1);
+    this.positions = new Float32Array(nv * 3);
+    this.colors = new Float32Array(nv * 3);
+    this.emissive = new Float32Array(nv);
+    this.water = new Float32Array(nv);
+    this.indices = new Uint32Array(n * n * 6);
+  }
+
+  step(budgetMs: number): boolean {
+    const t0 = performance.now();
+    const n = this.n;
+    const c = this.center;
+    const ref = Math.abs(c.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const t1 = new THREE.Vector3().crossVectors(ref, c).normalize();
+    const t2 = new THREE.Vector3().crossVectors(c, t1).normalize();
+    while (this.row <= n) {
+      const j = this.row;
+      for (let i = 0; i <= n; i++) {
+        const u = (i / n) * 2 - 1, v = (j / n) * 2 - 1;
+        const r = Math.max(Math.abs(u), Math.abs(v));
+        const warp = r > 0 ? Math.pow(r, 1.45) / r : 0;
+        const a = Math.tan(this.extent) * u * warp, b = Math.tan(this.extent) * v * warp;
+        let x = c.x + t1.x * a + t2.x * b, y = c.y + t1.y * a + t2.y * b, z = c.z + t1.z * a + t2.z * b;
+        const l = Math.hypot(x, y, z);
+        x /= l; y /= l; z /= l;
+        const smp = sampleSurface(this.terrain, this.body, x, y, z, 1);
+        const rr = 1 + smp.height;
+        const k = j * (n + 1) + i;
+        this.positions[k * 3] = x * rr; this.positions[k * 3 + 1] = y * rr; this.positions[k * 3 + 2] = z * rr;
+        this.colors[k * 3] = smp.color[0]; this.colors[k * 3 + 1] = smp.color[1]; this.colors[k * 3 + 2] = smp.color[2];
+        this.emissive[k] = smp.emissive;
+        this.water[k] = smp.water ? 1 : 0;
+      }
+      this.row++;
+      if (performance.now() - t0 > budgetMs) break;
+    }
+    if (this.row > n) {
+      let q = 0;
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+        // orientation (t1, t2, c) directe : (b − a) × (cc − a) pointe vers l'extérieur
+        const a = j * (n + 1) + i, b = a + 1, cc = a + (n + 1), d = cc + 1;
+        this.indices[q++] = a; this.indices[q++] = b; this.indices[q++] = cc;
+        this.indices[q++] = b; this.indices[q++] = d; this.indices[q++] = cc;
+      }
+      this.done = true;
+    }
+    return this.done;
+  }
+
+  geometry(): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
+    g.setAttribute('emissive', new THREE.BufferAttribute(this.emissive, 1));
+    g.setAttribute('water', new THREE.BufferAttribute(this.water, 1));
+    g.setIndex(new THREE.BufferAttribute(this.indices, 1));
+    g.computeVertexNormals();
+    g.computeBoundingSphere();
+    return g;
+  }
 }

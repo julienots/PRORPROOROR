@@ -50,6 +50,27 @@ Le dépôt était **vide** (aucun commit, aucun fichier) : aucune ressource exis
 - Quantité de mouvement non conservée par les éjectas d'impact ; température initiale des
   planètes ; rayon terrestre (compression gravitationnelle).
 
+## Itération 2 — Monde ouvert
+
+| Élément | Réalisé |
+|---|---|
+| Passages d'échelle sans coupure | système ⇄ galaxie ⇄ cosmos : conversion exacte de la position et de l'orientation de la caméra (UA ↔ kal ↔ Mpc, repère du disque galactique), déclenchés par la position de l'œil avec hystérésis (sortie d'un système à 5 al, entrée à 3,5 al) |
+| Ciels cohérents | ciel d'un système = étoiles de la galaxie simulée vues depuis l'étoile (direction, éclat ∝ L/d²) + bande alignée sur le vrai plan galactique + galaxies voisines réelles ; fond de la galaxie = galaxies voisines réelles |
+| Vol libre | vitesse adaptative selon l'objet le plus proche, inertie, molette = vitesse de croisière, caméra co-mobile avec la rotation galactique |
+| Voyage | pilote automatique vers une étoile voisine (clic dans le ciel) ou une galaxie ; génération du système à l'arrivée |
+| Atterrissage | carré de terrain local (128–160², construit par tranches) avec relief fin, ciel atmosphérique jour/crépuscule/nuit, nuages vus par-dessous, rotation physique de la planète, marche/vol au sol, recherche d'un continent |
+| Corrections | relief rendu réaliste (≈ 10 km au lieu de ×10), ordre des triangles du terrain local, étoiles du ciel masquées par le sol, systèmes sans objet central (nébuleuses) |
+
+Tests ajoutés (en jeu) : atterrissage + déplacement au sol, sortie du système en vol libre
+sans fondu, pilote automatique jusqu'à un nouveau système, galaxie → cosmos → galaxie.
+Résultat : **30/30** vérifications en navigateur, **46/46** tests unitaires.
+
+Limites spécifiques : le repère d'un système est supposé aligné sur le plan galactique ; les
+étoiles de la galaxie sont des traceurs (chacun représente une population), d'où des
+voisines distantes de quelques centaines d'années-lumière en qualité « performance » ; le
+terrain local et le maillage global ne se raccordent pas parfaitement à moyenne altitude ;
+le laboratoire microscopique reste relié par un fondu (représentation stylisée).
+
 ## Limitations connues (honnêtes)
 
 - **Approximations physiques** (étiquetées dans le jeu) : évolution stellaire par relations
@@ -60,8 +81,6 @@ Le dépôt était **vide** (aucun commit, aucun fichier) : aucune ressource exis
   prendraient des milliards d'années) ; elle est réglable (1 = relativité réelle).
 - Le passage du système stellaire à la surface est continu, mais la surface est un maillage
   global (jusqu'à 192 segments/face) : pas de pavage adaptatif kilométrique.
-- Les transitions entre échelles utilisent un fondu rapide (contextes de coordonnées
-  distincts), pas un zoom strictement continu.
 - Le son est entièrement synthétisé (pas de musique enregistrée).
 - Sauvegardes dans `localStorage` (≈ 5 Mo) : particules sous-échantillonnées (12 000 max),
   40 systèmes visités conservés au plus.

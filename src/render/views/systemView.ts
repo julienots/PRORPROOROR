@@ -11,8 +11,9 @@ import { Sky } from '../objects/sky';
 import { glowTexture, ringTexture, softTexture, disposeObject } from '../objects/common';
 import {
   createPlanetMaterial, createAtmosphereMaterial, createCloudMaterial, createGasGiantMaterial, createRingMaterial,
-  PlanetTerrain, TerrainBuild, MAX_LIGHTS, MAX_OCCLUDERS,
+  PlanetTerrain, TerrainBuild, MAX_LIGHTS, MAX_OCCLUDERS, SurfacePatchBuild, sampleSurface,
 } from '../objects/planetMesh';
+import { GalacticSky } from '../objects/galacticSky';
 import {
   createStarMaterial, createCoronaMaterial, createNebulaMaterial, createDiskMaterial, createJetMaterial, createHaloMaterial, createParticleMaterial,
 } from '../objects/stellarMesh';
@@ -149,11 +150,17 @@ class PlanetVisual extends BodyVisual {
   tail: THREE.Mesh | null = null;
   spin = new THREE.Group();
   rotAngle = 0;
+  patch: THREE.Mesh | null = null;
+  patchBuild: SurfacePatchBuild | null = null;
+  patchCenter = new THREE.Vector3();
+  patchExtent = 0;
+  patchAlt = 0;
   constructor(body: Body) {
     super(body);
     this.group.add(this.spin);
-    this.atmo = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), this.atmoMat);
-    this.clouds = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), this.cloudMat);
+    // tessellation fine : le limbe reste lisse vu depuis l'orbite basse
+    this.atmo = new THREE.Mesh(new THREE.SphereGeometry(1, 192, 96), this.atmoMat);
+    this.clouds = new THREE.Mesh(new THREE.SphereGeometry(1, 192, 96), this.cloudMat);
     this.spin.add(this.atmo, this.clouds);
     this.cloudMat.uniforms.seed.value = (body.seed % 1000) / 13;
     if (body.planet?.gasGiant) {
@@ -211,8 +218,13 @@ class PlanetVisual extends BodyVisual {
     // inclinaison et rotation propre
     const tilt = (p.axialTilt * Math.PI) / 180;
     this.group.rotation.set(0, 0, tilt);
-    const dRot = (2 * Math.PI * c.dtSim * 8766) / Math.max(0.1, p.rotationHours);
-    this.rotAngle += clamp(dRot, -0.8 * c.dtReal, 0.8 * c.dtReal);
+    if (v.game.surface?.bodyId === b.id) {
+      // au sol : rotation physique exacte (jour/nuit réels), identique pour la caméra et le terrain
+      this.rotAngle = this.physicalAngle(v.game.world.time);
+    } else {
+      const dRot = (2 * Math.PI * c.dtSim * 8766) / Math.max(0.1, p.rotationHours);
+      this.rotAngle += clamp(dRot, -0.8 * c.dtReal, 0.8 * c.dtReal);
+    }
     this.spin.rotation.y = this.rotAngle;
     this.clouds.rotation.y = this.rotAngle * 0.15;
     // éclairage
@@ -248,6 +260,7 @@ class PlanetVisual extends BodyVisual {
         this.mat.uniforms.ringRange.value.set(p.hasRings ? p.ringInner : 0, p.hasRings ? p.ringOuter : 0);
         this.mat.uniforms.ringNormal.value.set(-Math.sin(tilt), Math.cos(tilt), 0);
       }
+      this.updatePatch(v, c);
       // atmosphère
       const P = p.pressure;
       const hasAtmo = P > 0.003 && visible;
@@ -267,6 +280,9 @@ class PlanetVisual extends BodyVisual {
       }
       const cover = P > 50 ? 0.98 : clamp(p.waterFraction * 0.7 * clamp(P, 0, 2) + (P > 5 ? 0.3 : 0), 0, 0.95);
       this.clouds.visible = hasAtmo && cover > 0.05;
+      // vus du sol, les nuages sont observés par-dessous
+      const onGround = v.game.surface?.bodyId === b.id;
+      if (this.cloudMat.side !== (onGround ? THREE.DoubleSide : THREE.FrontSide)) { this.cloudMat.side = onGround ? THREE.DoubleSide : THREE.FrontSide; this.cloudMat.needsUpdate = true; }
       if (this.clouds.visible) {
         this.clouds.scale.setScalar(c.r * 1.012);
         lightSetup(this.cloudMat);
@@ -300,6 +316,58 @@ class PlanetVisual extends BodyVisual {
     }
     const baseCol = p.gasGiant ? 0xe8c890 : p.waterFraction > 0.5 ? 0x6aa8ff : 0xc8b8a0;
     this.updateDot(c, v, baseCol);
+  }
+
+  /** Carré de terrain détaillé sous le joueur pendant l'exploration au sol. */
+  private updatePatch(v: SystemView, c: Ctx): void {
+    const surf = v.game.surface && v.game.surface.bodyId === this.body.id ? v.game.surface : null;
+    if (!surf || !this.terrain.model) {
+      if (this.patch) this.patch.visible = false;
+      this.patchBuild = null;
+      return;
+    }
+    const R = this.body.radius;
+    const alt = Math.max(surf.altKm, 0.001);
+    const ratio = alt / R;
+    const ext = clamp(1.6 * Math.sqrt(2 * ratio) + 3 * ratio, 4e-4, 0.7);
+    const moved = this.patch ? Math.acos(clamp(this.patchCenter.dot(surf.dir), -1, 1)) : Infinity;
+    const need = !this.patch || moved > this.patchExtent * 0.18 || alt > this.patchAlt * 1.8 || alt < this.patchAlt * 0.5;
+    if (need && !this.patchBuild) this.patchBuild = new SurfacePatchBuild(this.body, this.terrain.model, surf.dir, ext, alt, v.game.engine.settings.terrainDetail >= 128 ? 160 : 128);
+    if (this.patchBuild && this.patchBuild.step(this.patch ? 8 : 150)) {
+      const geo = this.patchBuild.geometry();
+      if (this.patch) { this.patch.geometry.dispose(); this.patch.geometry = geo; }
+      else { this.patch = new THREE.Mesh(geo, this.mat); this.patch.frustumCulled = false; this.spin.add(this.patch); }
+      this.patchCenter.copy(this.patchBuild.center);
+      this.patchExtent = this.patchBuild.extent;
+      this.patchAlt = this.patchBuild.altitude;
+      this.patchBuild = null;
+    }
+    if (this.patch) {
+      this.patch.visible = true;
+      this.patch.scale.setScalar(c.r);
+      // le maillage global, trop grossier au sol, est masqué dès que le carré local couvre l'horizon
+      if (this.mesh && ratio < 0.05 && this.patchExtent >= ext * 0.7) this.mesh.visible = false;
+    }
+  }
+
+  /** Rayon du sol (en rayons planétaires) dans une direction du repère de l'astre. */
+  groundRadius(dir: THREE.Vector3): number {
+    if (!this.terrain.model) this.terrain.needsRebuild(this.body, this.terrain.seg);
+    if (!this.terrain.model) return 1;
+    return 1 + sampleSurface(this.terrain.model, this.body, dir.x, dir.y, dir.z, 1).height;
+  }
+
+  /** Angle de rotation propre physique à l'instant t (années). */
+  physicalAngle(t: number): number {
+    const P = Math.max(0.1, this.body.planet?.rotationHours ?? 24);
+    return ((2 * Math.PI * t * 8766) / P) % (2 * Math.PI);
+  }
+
+  /** Orientation monde du repère fixe de l'astre (inclinaison × rotation propre). */
+  frameQuaternion(t?: number): THREE.Quaternion {
+    const tilt = ((this.body.planet?.axialTilt ?? 0) * Math.PI) / 180;
+    const ang = t !== undefined ? this.physicalAngle(t) : this.rotAngle;
+    return new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, tilt)).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ang, 0)));
   }
 
   attachBuilt(): void {
@@ -495,10 +563,64 @@ export class SystemView implements View {
   private frame = 0;
   private gwWaves: { au: Vec3; age: number; amp: number }[] = [];
   showTrails = true;
+  /** Ciel réel (étoiles de la galaxie simulée vues depuis ce système). */
+  readonly galSky = new GalacticSky();
+  private bg = new THREE.Color(0, 0, 0);
+  private skyKey = '';
+
+  /** Reconstruit le ciel si le système ou la galaxie ont changé. */
+  private syncSky(): void {
+    const g = this.game;
+    const sim = g.galaxy;
+    const cg = g.currentGalaxy;
+    if (!sim || !cg) { this.sky.randomStarsVisible = true; return; }
+    const idx = g.currentStarIndex();
+    const key = `${cg.params.id}:${idx}:${sim.n}:${Math.round(sim.time)}`;
+    if (key === this.skyKey) return;
+    this.skyKey = key;
+    this.galSky.build(sim, idx);
+    const near = g.cosmic.galaxiesNear(cg.cosmic.x, cg.cosmic.y, cg.cosmic.z, 45);
+    this.galSky.buildGalaxies(cg.cosmic, near);
+    this.sky.randomStarsVisible = false;
+    // repère du système aligné sur le plan galactique (simplification)
+    this.sky.setGalacticFrame(new THREE.Vector3(0, 1, 0), this.galSky.centerDir, cg.params.type === 'elliptical' ? 0.5 : 2.5);
+  }
+
+  /** Planète visuelle (pour l'exploration au sol). */
+  planetVisual(id: number): { groundRadius(d: THREE.Vector3): number; frameQuaternion(t?: number): THREE.Quaternion } | null {
+    const v = this.visuals.get(id);
+    return v instanceof PlanetVisual ? v : null;
+  }
+
+  /** Ciel atmosphérique vu du sol : bleu de jour, crépuscule, nuit étoilée. */
+  private updateGroundSky(): number {
+    const g = this.game;
+    const surf = g.surface;
+    const b = surf ? g.world.get(surf.bodyId) : undefined;
+    const pv = b ? this.planetVisual(b.id) : null;
+    if (!surf || !b?.planet || !pv || b.planet.pressure < 0.003 || b.planet.gasGiant) { this.bg.setRGB(0, 0, 0); return 0; }
+    const up = surf.dir.clone().applyQuaternion(pv.frameQuaternion());
+    const L = this.lights[0];
+    const P = b.planet.pressure;
+    // densité de l'air décroissant avec l'altitude (hauteur d'échelle ~ 1 % du rayon)
+    const H = b.radius * 0.0013 * Math.max(0.5, b.temperature / 250);
+    const air = Math.exp(-surf.altKm / H) * Math.min(1, Math.pow(P, 0.35));
+    if (!L) { this.bg.setRGB(0, 0, 0); return 0; }
+    const sun = L.pos.clone().normalize();
+    const elev = up.dot(sun);
+    const day = THREE.MathUtils.smoothstep(elev, -0.12, 0.25);
+    const twilight = Math.exp(-Math.pow(elev / 0.12, 2));
+    const base = b.composition.organic > 0.03 && P > 0.5 ? new THREE.Color(0.75, 0.45, 0.18) : P > 20 ? new THREE.Color(0.85, 0.7, 0.4) : b.planet.waterFraction < 0.05 && P < 0.05 ? new THREE.Color(0.75, 0.5, 0.35) : new THREE.Color(0.28, 0.5, 0.95);
+    const col = base.multiplyScalar(day * 0.9).add(new THREE.Color(0.9, 0.35, 0.1).multiplyScalar(twilight * 0.5));
+    this.bg.copy(col.multiplyScalar(air));
+    return clamp(air * (day + twilight * 0.3), 0, 1);
+  }
 
   constructor(public game: Game) {
     this.sky = new Sky(1234);
     this.scene.add(this.sky.group);
+    this.scene.add(this.galSky.group);
+    this.scene.background = this.bg;
     const cap = 40000;
     this.pPos = new Float32Array(cap * 3);
     this.pCol = new Float32Array(cap * 3);
@@ -529,7 +651,7 @@ export class SystemView implements View {
     const rig = this.game.engine.rig;
     rig.renderScale = AU_UNIT;
     rig.minDistance = km2au(0.002);
-    rig.maxDistance = 4e5;
+    rig.maxDistance = 1e9; // la sortie du système est gérée par la position de l'œil (monde ouvert)
     this.clearTrails();
   }
 
@@ -561,7 +683,7 @@ export class SystemView implements View {
       const d2 = Math.max(1e-10, (L.au.x - b.pos.x) ** 2 + (L.au.y - b.pos.y) ** 2 + (L.au.z - b.pos.z) ** 2);
       // exposition perceptive : I = (L/d²)^0.2 (compression de la dynamique, choix artistique)
       const inten = clamp(Math.pow(L.lum / d2, 0.2), 0.08, 3);
-      (u.lightColor.value as THREE.Color[])[i].copy(L.color).multiplyScalar(inten * 1.4);
+      (u.lightColor.value as THREE.Color[])[i].copy(L.color).multiplyScalar(inten * 1.15);
       u.lightRadius.value[i] = L.radius;
     }
     const oc = this.game.engine.settings.eclipseShadows ? c.occluders.filter((o) => Math.abs(o.x - c.rel.x) + Math.abs(o.y - c.rel.y) + Math.abs(o.z - c.rel.z) > c.r * 0.01).slice(0, MAX_OCCLUDERS) : [];
@@ -669,8 +791,20 @@ export class SystemView implements View {
         const s = game.engine.toScreen(rel);
         if (s.visible && s.x > -0.05 && s.x < 1.05 && s.y > -0.05 && s.y < 1.05) {
           const pri = (b.kind === 'star' || b.kind === 'blackhole' ? 1e6 : 0) + b.mass * 1e6 + (game.selectionId === `b${b.id}` ? 1e12 : 0);
+          if (game.surface?.bodyId === b.id) continue;
+          if (game.surface && b.kind !== 'star') continue; // au sol, seules les étoiles restent étiquetées
           labelCandidates.push({ id: `b${b.id}`, name: b.name, x: s.x * game.engine.width, y: s.y * game.engine.height, pri, cls: `k-${b.kind}${game.selectionId === `b${b.id}` ? ' sel' : ''}`, marker: px < 3 });
         }
+      }
+    }
+    // étoiles voisines réelles (cliquables : voyage interstellaire)
+    this.syncSky();
+    if (game.engine.settings.labels && !game.surface) {
+      for (const nb of this.galSky.neighbors.slice(0, 10)) {
+        const s = game.engine.toScreen(nb.dir.clone().multiplyScalar(1e6));
+        if (!s.visible || s.x < 0 || s.x > 1 || s.y < 0 || s.y > 1) continue;
+        const sel = game.selectionId === `n${nb.idx}`;
+        labelCandidates.push({ id: `n${nb.idx}`, name: `★ ${nb.idx === game.solIndex && game.currentGalaxy?.params.id === 'home' ? 'Soleil' : `Étoile #${nb.idx}`} · ${nb.distLy < 10 ? nb.distLy.toFixed(2) : nb.distLy.toFixed(0)} al`, x: s.x * game.engine.width, y: s.y * game.engine.height, pri: sel ? 1e12 : 1e3 / nb.distLy, cls: `k-neighbor${sel ? ' sel' : ''}`, marker: true });
       }
     }
     labelCandidates.sort((a, b) => b.pri - a.pri);
@@ -697,6 +831,10 @@ export class SystemView implements View {
     this.updateAnalysis(dtReal);
     this.updateEffects(dtReal, pf);
     this.sky.setPixelRatio(game.engine.renderer.getPixelRatio());
+    this.galSky.setPixelRatio(game.engine.renderer.getPixelRatio());
+    const dayK = this.updateGroundSky();
+    this.sky.intensity = 1 - dayK * 0.97;
+    this.galSky.intensity = 1 - dayK * 0.97;
     void eye;
   }
 
@@ -962,7 +1100,12 @@ export class SystemView implements View {
       const score = (b.kind === 'nebula' ? 1e6 : 0) + dist * (1 + d / Math.max(tol, 1));
       if (!best || score < best.score) best = { b, score };
     }
-    return best ? { kind: 'body', id: `b${best.b.id}`, label: best.b.name } : null;
+    if (best) return { kind: 'body', id: `b${best.b.id}`, label: best.b.name };
+    for (const nb of this.galSky.neighbors) {
+      const s = game.engine.toScreen(nb.dir.clone().multiplyScalar(1e6));
+      if (s.visible && Math.hypot(s.x * game.engine.width - px, s.y * game.engine.height - py) < 10) return { kind: 'star', id: `n${nb.idx}`, label: `Étoile #${nb.idx}` };
+    }
+    return null;
   }
 
   positionOf(id: string): Vec3 | null {

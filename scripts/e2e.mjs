@@ -123,6 +123,64 @@ await check('Saturne et ses anneaux', async () => {
   await shot('04-saturne');
 });
 
+await check('Monde ouvert : atterrissage et exploration au sol', async () => {
+  await ev(() => { const g = window.__SUPERESSENCE__.game; const e = g.world.bodies.find((b) => b.name === 'Terre'); g.select(`b${e.id}`); g.engine.rig.set(e.pos, e.radius / 1.496e8 * 3); });
+  await wait(1500);
+  await page.click('[data-testid=toggle-land]');
+  await ev(() => { const g = window.__SUPERESSENCE__.game; g.engine.rig.distance = 1.5 / 1.496e8; g.engine.rig.pitch = 0.1; });
+  await wait(12000);
+  const st = await ev(() => { const g = window.__SUPERESSENCE__.game; const v = g.views.system.visuals.get(g.surface?.bodyId); return { surf: !!g.surface, mode: g.engine.rig.mode, patch: !!v?.patch, alt: g.surface?.altKm, hud: g.ow.hud.mode }; });
+  assert(st.surf && st.mode === 'surface' && st.patch, JSON.stringify(st));
+  // marche vers l'avant (touche Z/W) : la position au sol change
+  const d0 = await ev(() => window.__SUPERESSENCE__.game.surface.dir.clone());
+  await page.keyboard.down('w'); await wait(2500); await page.keyboard.up('w');
+  const moved = await ev((d) => { const s = window.__SUPERESSENCE__.game.surface.dir; return Math.acos(Math.min(1, s.x * d.x + s.y * d.y + s.z * d.z)); }, d0);
+  assert(moved > 0, 'aucun déplacement au sol');
+  await shot('25-sol-terre');
+  await page.click('[data-testid=toggle-land]');
+  await wait(800);
+  assert(!(await ev(() => !!window.__SUPERESSENCE__.game.surface)), 'décollage impossible');
+  return `altitude ${st.alt?.toFixed(2)} km, déplacement ${(moved * 6371).toFixed(2)} km`;
+});
+
+await check('Monde ouvert : sortie du système en vol libre (sans coupure)', async () => {
+  await ev(() => { const g = window.__SUPERESSENCE__.game; const s = g.world.primary(); g.engine.rig.mode = 'free'; g.engine.rig.setForward({ x: 1, y: -0.1, z: 0.3 }); g.engine.rig.setEye({ x: s.pos.x - 3.4e5, y: s.pos.y + 1e4, z: s.pos.z }); });
+  await wait(2500);
+  const st = await ev(() => { const g = window.__SUPERESSENCE__.game; return { level: g.level, fade: document.querySelector('.fade').classList.contains('on'), sky: g.views.system.galSky.neighbors.length }; });
+  assert(st.level === 'galaxy', `niveau ${st.level}`);
+  assert(!st.fade, 'un fondu a été utilisé');
+  await shot('26-sortie-en-vol');
+  return `${st.sky} étoiles voisines réelles dans le ciel du système`;
+});
+
+await check('Monde ouvert : pilote automatique vers une étoile voisine', async () => {
+  const target = await ev(() => { const g = window.__SUPERESSENCE__.game; g.engine.rig.mode = 'orbit'; const nb = g.views.system.galSky.neighbors[0]; g.ow.travelToStar(nb.idx); return nb.idx; });
+  let st;
+  for (let i = 0; i < 60; i++) { await wait(1000); st = await ev(() => { const g = window.__SUPERESSENCE__.game; return { level: g.level, key: g.systemKey }; }); if (st.level === 'system') break; }
+  assert(st.level === 'system' && st.key.endsWith(`:${target}`), JSON.stringify(st));
+  await wait(4000);
+  await shot('27-arrivee-pilote-auto');
+  return `arrivé dans ${st.key}`;
+});
+
+await check('Monde ouvert : galaxie → cosmos → galaxie en vol', async () => {
+  await ev(() => window.__SUPERESSENCE__.game.goGalaxy());
+  await wait(2500);
+  await ev(() => { const g = window.__SUPERESSENCE__.game; g.engine.rig.mode = 'free'; g.engine.rig.setEye({ x: 0, y: 1200, z: 0 }); g.engine.rig.setForward({ x: 0, y: -1, z: 0.01 }); });
+  await wait(2500);
+  const l1 = await ev(() => window.__SUPERESSENCE__.game.level);
+  assert(l1 === 'cosmic', `après sortie : ${l1}`);
+  await ev(() => { const g = window.__SUPERESSENCE__.game; g.ow.travelToGalaxy(g.currentGalaxy.cosmic.id); });
+  let l2;
+  for (let i = 0; i < 40; i++) { await wait(1000); l2 = await ev(() => window.__SUPERESSENCE__.game.level); if (l2 === 'galaxy') break; }
+  assert(l2 === 'galaxy', `retour : ${l2}`);
+  // retour au Système solaire pour la suite des tests
+  await ev(async () => { const g = window.__SUPERESSENCE__.game; g.engine.rig.mode = 'orbit'; await g.enterStar(g.solIndex); const s = g.world.primary(); g.engine.rig.set(s.pos, 45); });
+  await wait(2000);
+  const key = await ev(() => window.__SUPERESSENCE__.game.systemKey);
+  assert(key === 'sol', `retour au Soleil : ${key}`);
+});
+
 await check('Création de matière (roche → planète) via l\'interface', async () => {
   await page.click('[data-testid=open-create]');
   await page.click('[data-testid=create-tab-matter]');
@@ -282,10 +340,11 @@ await check('Fusion de galaxies', async () => {
 });
 
 await check('Entrée dans un système généré depuis la galaxie (reproductible)', async () => {
-  const k1 = await ev(async () => { const g = window.__SUPERESSENCE__.game; await g.enterStar(1234); return g.world.bodies.map((b) => `${b.name}:${b.mass.toPrecision(6)}`).join('|'); });
+  const k1 = await ev(async () => { const g = window.__SUPERESSENCE__.game; g.paused = true; await g.enterStar(1234); return g.world.bodies.map((b) => `${b.name}:${b.mass.toPrecision(6)}`).join('|'); });
   await wait(1500);
   await shot('15-systeme-genere');
-  const k2 = await ev(async () => { const g = window.__SUPERESSENCE__.game; delete g.universe.systems[g.systemKey]; await g.goGalaxy(); await g.enterStar(1234); const s = g.world.bodies.map((b) => `${b.name}:${b.mass.toPrecision(6)}`).join('|'); return s; });
+  const k2 = await ev(async () => { const g = window.__SUPERESSENCE__.game; const key = g.systemKey; await g.goGalaxy(); delete g.universe.systems[key]; await g.enterStar(1234); const s = g.world.bodies.map((b) => `${b.name}:${b.mass.toPrecision(6)}`).join('|'); return s; });
+  await ev(() => { window.__SUPERESSENCE__.game.paused = false; });
   assert(k1 === k2, 'génération non reproductible');
   return k1.split('|').length + ' corps, identiques après régénération';
 });

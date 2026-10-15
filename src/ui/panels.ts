@@ -539,8 +539,11 @@ export class Panels {
         <tr><td>S M C P K X</td><td>Outils : sélection, déplacer, créer, pousser, collision, détruire</td></tr>
         <tr><td>A · V · F · Tab · H</td><td>Analyse · mode caméra · rejoindre · carte · masquer l'interface</td></tr>
         <tr><td>Ctrl+Z / Ctrl+Y / Ctrl+S</td><td>Annuler / rétablir / sauvegarder</td></tr>
-        <tr><td>Caméra libre</td><td>ZQSD ou WASD, E/C (monter/descendre), Maj (vite)</td></tr>
+        <tr><td>G — vol libre</td><td>ZQSD/WASD, E/C monter/descendre, Maj ×6, molette = vitesse de croisière. La vitesse s'adapte à l'objet le plus proche.</td></tr>
+        <tr><td>L — atterrir / décoller</td><td>Au sol : ZQSD/WASD pour avancer, glisser pour regarder, molette ou E/C pour l'altitude.</td></tr>
       </table>
+      <h4>Monde ouvert</h4>
+      <p>L'univers est continu : volez (ou zoomez) hors d'un système stellaire pour vous retrouver parmi les étoiles de la galaxie, continuez jusqu'à l'espace intergalactique, plongez vers une autre galaxie puis vers n'importe laquelle de ses étoiles — chaque système est généré à la demande et vos modifications y sont conservées. Le ciel de chaque système est formé des vraies étoiles de la galaxie simulée. Cliquez sur une étoile voisine (★) dans le ciel pour y voyager en pilote automatique. Les vitesses supraluminiques sont un pouvoir divin.</p>
       <h4>Légende scientifique</h4>
       <p><span class="badge b-sci">Science établie</span> physique mesurée et bien comprise ·
       <span class="badge b-approx">Approximation</span> modèle simplifié pour le temps réel ·

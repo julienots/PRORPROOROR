@@ -38,7 +38,8 @@ export function buildTerrain(b: Body): TerrainModel {
   const noise = new SimplexNoise(p.terrainSeed);
   const noise2 = new SimplexNoise(p.terrainSeed ^ 0x9e37);
   const g = Math.max(0.3, surfaceGravity(b));
-  const relief = clamp(0.012 * Math.sqrt(9.81 / g), 0.006, 0.05) * (b.kind === 'asteroid' || b.kind === 'comet' ? 6 : 1);
+  // relief réaliste : ~10 km pour une planète type Terre, plus haut sous faible gravité (Olympus Mons)
+  const relief = clamp(0.0022 * Math.sqrt(9.81 / g), 0.0012, 0.03) * (b.kind === 'asteroid' || b.kind === 'comet' ? 15 : 1);
   const craters: Crater[] = [];
   // densité de cratères : forte sans atmosphère ni érosion
   const atmo = p.pressure;
@@ -116,9 +117,9 @@ export interface SurfaceSample {
  * Couleur et altitude d'un point : biomes dépendant de la température (latitude,
  * altitude), de l'état de l'eau, de la vie et de la composition.
  */
-export function sampleSurface(t: TerrainModel, b: Body, x: number, y: number, z: number): SurfaceSample {
+export function sampleSurface(t: TerrainModel, b: Body, x: number, y: number, z: number, detail = 0): SurfaceSample {
   const p = b.planet!;
-  const h = rawHeight(t, x, y, z);
+  const h = rawHeight(t, x, y, z) + (detail > 0 ? detailHeight(t, x, y, z) * detail : 0);
   const above = h - t.seaLevel;
   const T0 = b.temperature;
   const ws = waterState(T0, p);
@@ -167,7 +168,7 @@ export function sampleSurface(t: TerrainModel, b: Body, x: number, y: number, z:
   const snowLine = T < 268 ? 1 : 0;
   if ((snowLine && (ws !== 'aucune' || iceFrac > 0.1)) || iceFrac > 0.5) {
     const k = clamp((268 - T) / 15, 0, 1) * clamp(p.waterFraction * 3 + iceFrac, 0, 1);
-    col = [lerp(col[0], 0.92, k), lerp(col[1], 0.95, k), lerp(col[2], 0.98, k)];
+    col = [lerp(col[0], 0.8, k), lerp(col[1], 0.83, k), lerp(col[2], 0.87, k)];
     if (k > 0.5) water = false;
   }
   // lave : surface très chaude ou chaleur d'impact
@@ -180,4 +181,15 @@ export function sampleSurface(t: TerrainModel, b: Body, x: number, y: number, z:
     water = false;
   }
   return { height: height * t.relief, color: col, emissive, water };
+}
+
+/**
+ * Relief fin (échelle kilométrique à métrique) ajouté au terrain près du sol :
+ * collines, rochers et rides, invisibles depuis l'orbite.
+ */
+export function detailHeight(t: TerrainModel, x: number, y: number, z: number): number {
+  const n = t.noise, m = t.noise2;
+  return n.fbm(x * 120, y * 120, z * 120, 4, 2.1, 0.5) * 0.08
+    + Math.pow(m.ridged(x * 700, y * 700, z * 700, 3, 2.2, 0.5), 2) * 0.025
+    + n.noise3(x * 4000, y * 4000, z * 4000) * 0.004;
 }

@@ -1,0 +1,13 @@
+import { chromium } from 'playwright-core';
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1000, height: 640 } });
+await page.goto('http://localhost:4173/?autostart&quality=performance');
+await page.waitForTimeout(3000);
+await page.evaluate(() => { const g = window.__SUPERESSENCE__.game; g.paused = true; const e = g.world.bodies.find((b) => b.name === 'Terre'); g.select('b' + e.id); g.engine.rig.set(e.pos, e.radius / 1.496e8 * 3); g.ow.land(e.id); g.engine.rig.distance = 3 / 1.496e8; g.engine.rig.pitch = 0.35; });
+await page.waitForTimeout(9000);
+console.log(JSON.stringify(await page.evaluate(() => { const g = window.__SUPERESSENCE__.game; const v = g.views.system.visuals.get(g.surface.bodyId); return { patch: !!v.patch, vis: v.patch?.visible, building: !!v.patchBuild, ext: v.patchExtent, alt: v.patchAlt, meshVis: v.mesh?.visible, cloudsVis: v.clouds.visible, dir: g.surface.dir, ground: g.views.system.planetVisual(g.surface.bodyId).groundRadius(g.surface.dir) }; })));
+await page.screenshot({ path: 'test-results/ow-ground-down.png' });
+await page.evaluate(() => { const g = window.__SUPERESSENCE__.game; g.engine.rig.pitch = 0.08; });
+await page.waitForTimeout(3000);
+await page.screenshot({ path: 'test-results/ow-ground-horizon.png' });
+await browser.close();
