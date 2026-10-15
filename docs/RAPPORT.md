@@ -98,3 +98,14 @@ le laboratoire microscopique reste relié par un fondu (représentation stylisé
 4. Stockage IndexedDB, compression des sauvegardes, partage d'univers par graine.
 5. Mesures de performances sur GPU réels, découpage du bundle, Web Workers pour la physique.
 6. Musique composée et spatialisation audio.
+
+## Itération 3 — Nom du jeu et studio
+
+- Le jeu s'appelle désormais **DEMIURGE — Dieu du cosmos** (menu, barre supérieure, titre de la
+  page, nom de l'application Android, export des sauvegardes `.demiurge.json`).
+- **SUPERESSENCE** est le studio : écran de démarrage « SUPERESSENCE présente » (≈ 3 s, clic ou
+  touche pour passer), écran de lancement natif Android, identifiant `com.superessence.demiurge`.
+- Conservés volontairement pour la compatibilité : format interne des sauvegardes
+  (`superessence-universe`) et clés `localStorage`, afin que les univers déjà enregistrés se
+  chargent toujours ; API de test `window.__SUPERESSENCE__`.
+- Test ajouté : écran du studio visible puis menu titré « DEMIURGE ».

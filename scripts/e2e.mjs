@@ -50,10 +50,18 @@ const litFraction = () => ev(() => {
 });
 
 await page.goto(`http://localhost:${PORT}/?quality=performance`);
-await wait(3000);
+await wait(800);
 
-await check('Menu principal affiché', async () => {
+await check('Écran du studio puis menu principal', async () => {
+  assert(await page.isVisible('[data-testid=studio-splash]'), 'écran du studio absent');
+  const studio = await page.textContent('.studio-name');
+  assert(studio === 'SUPERESSENCE', `studio : ${studio}`);
+  await shot('00-studio');
+  await wait(3800);
+  assert(!(await page.isVisible('[data-testid=studio-splash]')), 'écran du studio toujours affiché');
   assert(await page.isVisible('[data-testid=main-menu]'), 'menu absent');
+  const title = await page.textContent('.mainmenu h1');
+  assert(title === 'DEMIURGE', `titre du jeu : ${title}`);
   await shot('01-menu');
 });
 

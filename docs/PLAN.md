@@ -1,4 +1,4 @@
-# SUPERESSENCE — GOD OF THE COSMOS · Plan de développement
+# DEMIURGE — Dieu du cosmos (studio SUPERESSENCE) · Plan de développement
 
 ## 0. Audit initial
 

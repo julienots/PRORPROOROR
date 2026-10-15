@@ -1,8 +1,8 @@
 {
-  "name": "superessence-god-of-the-cosmos",
+  "name": "demiurge",
   "version": "0.1.0",
   "private": true,
-  "description": "SUPERESSENCE — GOD OF THE COSMOS : simulateur cosmique 3D, mode Dieu, trous noirs, galaxies, Big Bang.",
+  "description": "DEMIURGE — Dieu du cosmos (studio SUPERESSENCE) : simulateur cosmique 3D, mode Dieu, trous noirs, galaxies, Big Bang.",
   "type": "module",
   "scripts": {
     "dev": "vite",

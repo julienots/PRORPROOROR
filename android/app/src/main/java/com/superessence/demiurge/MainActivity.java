@@ -1,4 +1,4 @@
-package com.superessence.godofthecosmos;
+package com.superessence.demiurge;
 
 import com.getcapacitor.BridgeActivity;
 

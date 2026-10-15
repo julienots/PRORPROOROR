@@ -370,7 +370,7 @@ export class Panels {
       h('div', { class: 'saverow' },
         h('label', null, 'Nom de l\'univers ', nameInput),
         button('Sauvegarder', () => { g.universe.name = nameInput.value.slice(0, 60) || g.universe.name; g.save(); }, 'primary', undefined, 'save-now'),
-        button('Exporter (JSON)', () => { const u = g.buildSave(); download(`${u.name.replace(/[^\w-]+/g, '_')}.superessence.json`, g.store.exportJSON(u)); }),
+        button('Exporter (JSON)', () => { const u = g.buildSave(); download(`${u.name.replace(/[^\w-]+/g, '_')}.demiurge.json`, g.store.exportJSON(u)); }),
         button('Importer…', () => fileInput.click()),
         fileInput,
       ),

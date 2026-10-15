@@ -5,6 +5,7 @@ import { CAMERA_MODE_LABEL, type CameraMode } from '../camera/rig';
 import type { ScaleLevel } from '../save/serialize';
 import { PropertiesPanel } from './properties';
 import { Panels } from './panels';
+import { GAME_NAME, GAME_SUBTITLE, STUDIO_NAME } from '../brand';
 
 const TOOLS: [Tool, string, string, string][] = [
   ['select', '⌖', 'Sélection', 'Cliquer pour sélectionner, double-clic pour rejoindre (S)'],
@@ -95,7 +96,7 @@ export class UI {
     this.undoBtn = button('↶', () => g.undo(), 'icon', 'Annuler (Ctrl+Z)', 'undo');
     this.redoBtn = button('↷', () => g.redo(), 'icon', 'Rétablir (Ctrl+Y)', 'redo');
     this.top = h('header', { class: 'topbar' },
-      h('div', { class: 'brand', onclick: () => this.showMenu() }, h('b', null, 'SUPERESSENCE'), h('small', null, 'GOD OF THE COSMOS')),
+      h('div', { class: 'brand', onclick: () => this.showMenu() }, h('b', null, GAME_NAME), h('small', null, GAME_SUBTITLE)),
       this.crumbs,
       h('div', { class: 'timectl' },
         button('«', () => g.changeSpeed(-1), 'icon', 'Ralentir le temps ( [ )', 'slower'),
@@ -293,6 +294,27 @@ export class UI {
   // Menu principal
   // -------------------------------------------------------------------------
 
+  /** Écran de démarrage du studio, puis menu principal (clic ou touche pour passer). */
+  showStudioSplash(): void {
+    const splash = h('div', { class: 'studio-splash', 'data-testid': 'studio-splash' },
+      h('div', { class: 'studio-name' }, STUDIO_NAME),
+      h('div', { class: 'studio-sub' }, 'présente'),
+    );
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('keydown', finish, true);
+      splash.classList.add('out');
+      this.showMenu();
+      setTimeout(() => splash.remove(), 700);
+    };
+    splash.addEventListener('pointerdown', finish);
+    window.addEventListener('keydown', finish, true);
+    this.root.appendChild(splash);
+    setTimeout(finish, 3200);
+  }
+
   showMenu(): void {
     if (this.menu) return;
     const g = this.game;
@@ -302,8 +324,8 @@ export class UI {
     const start = () => { this.closeMenu(); g.started = true; g.audio.start(); };
     this.menu = h('div', { class: 'mainmenu', 'data-testid': 'main-menu' },
       h('div', { class: 'menu-inner' },
-        h('h1', null, 'SUPERESSENCE'),
-        h('h2', null, 'GOD OF THE COSMOS'),
+        h('h1', null, GAME_NAME),
+        h('h2', null, GAME_SUBTITLE),
         h('p', { class: 'tagline' }, 'Créez, comprenez, transformez et détruisez l\'univers — de la particule aux galaxies.'),
         h('div', { class: 'menu-buttons' },
           g.started ? button('Reprendre', () => start(), 'primary', undefined, 'menu-resume') : null,

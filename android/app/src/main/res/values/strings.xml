@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">SUPERESSENCE</string>
-    <string name="title_activity_main">SUPERESSENCE</string>
-    <string name="package_name">com.superessence.godofthecosmos</string>
-    <string name="custom_url_scheme">com.superessence.godofthecosmos</string>
+    <string name="app_name">DEMIURGE</string>
+    <string name="title_activity_main">DEMIURGE</string>
+    <string name="package_name">com.superessence.demiurge</string>
+    <string name="custom_url_scheme">com.superessence.demiurge</string>
 </resources>

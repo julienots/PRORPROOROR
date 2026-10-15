@@ -266,7 +266,7 @@ export function emptyUniverse(name: string, seed: number, world: World): Univers
 export function validateUniverse(raw: unknown): UniverseSave {
   if (!raw || typeof raw !== 'object') throw new Error('Fichier vide ou illisible');
   const r = raw as Record<string, unknown>;
-  if (r.format !== SAVE_FORMAT) throw new Error('Ce fichier n\'est pas une sauvegarde SUPERESSENCE');
+  if (r.format !== SAVE_FORMAT) throw new Error('Ce fichier n\'est pas une sauvegarde DEMIURGE');
   const version = sanitize(r.version, 0);
   if (version < 1 || version > SAVE_VERSION) throw new Error(`Version de sauvegarde non prise en charge (${version})`);
   const loc = (r.location ?? {}) as Record<string, unknown>;

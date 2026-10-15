@@ -1,4 +1,6 @@
-# SUPERESSENCE — GOD OF THE COSMOS
+# DEMIURGE — Dieu du cosmos
+
+*Un jeu du studio **SUPERESSENCE**.*
 
 Simulateur cosmique 3D jouable dans le navigateur : vous incarnez une divinité capable de
 créer, modifier, détruire et faire évoluer un univers, des quarks aux galaxies.
@@ -15,7 +17,7 @@ npm run preview      # sert le build de production → http://localhost:4173
 ```
 
 Options d'URL : `?quality=performance|equilibre|qualite` (préréglage graphique),
-`?autostart` (saute le menu principal).
+`?autostart` (saute le menu principal), `?nosplash` (saute l'écran du studio).
 
 ## Tests
 
