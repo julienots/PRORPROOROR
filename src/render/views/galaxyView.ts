@@ -94,7 +94,7 @@ export class GalaxyView implements View {
       const m = sim.starMass[i];
       const T = age < 0.25 ? 9000 + 15000 * (1 - age * 4) : 3500 + 3000 * (1 - age) + m * 800;
       const [r, g, b] = blackbodyRGB(T);
-      const br = age < 0.25 ? 1.6 : 0.6 + 0.3 * Math.random();
+      const br = age < 0.25 ? 2.2 : 0.4 + 0.25 * Math.random();
       this.colors[i * 3] = r * br; this.colors[i * 3 + 1] = g * br; this.colors[i * 3 + 2] = b * br;
       sizes[i] = age < 0.25 ? 2.2 : 1.2;
     }
@@ -213,7 +213,7 @@ export class GalaxyView implements View {
     sim.components.forEach((c, k) => {
       const b = this.bulges[k];
       b.position.set(c.center.x - eye.x, c.center.y - eye.y, c.center.z - eye.z);
-      const R = c.params.type === 'elliptical' ? c.aBulge * 6 : c.aBulge * 10 + c.params.radius * 0.15;
+      const R = c.params.type === 'elliptical' ? c.aBulge * 4 : c.aBulge * 5 + c.params.radius * 0.04;
       b.scale.setScalar(R);
       const h = this.halos[k];
       h.visible = game.analysis && c.haloOn;

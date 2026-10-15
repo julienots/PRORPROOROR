@@ -288,8 +288,8 @@ export class GalaxySim {
           const cot = 1 / Math.tan((p.pitchDeg * Math.PI) / 180);
           const psi = p.arms * th - cot * Math.log(Math.max(R, 0.1) / (p.radius * 0.3));
           const arm = 0.5 + 0.5 * Math.cos(psi);
-          if (rng.next() < 0.35 + 0.65 * Math.pow(arm, 3)) {
-            age = rng.next() < p.gasFraction * 2.5 * arm ? rng.range(0, 0.25) : rng.range(0.3, 1);
+          if (rng.next() < 0.12 + 0.88 * Math.pow(arm, 5)) {
+            age = rng.next() < p.gasFraction * 4.5 * arm * arm ? rng.range(0, 0.25) : rng.range(0.3, 1);
             break;
           }
         }
