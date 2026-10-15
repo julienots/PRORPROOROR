@@ -49,7 +49,7 @@ const litFraction = () => ev(() => {
   return lit / (d.length / 4);
 });
 
-await page.goto(`http://localhost:${PORT}/`);
+await page.goto(`http://localhost:${PORT}/?quality=performance`);
 await wait(3000);
 
 await check('Menu principal affiché', async () => {
@@ -88,7 +88,7 @@ await check('Accélération et pause du temps', async () => {
 
 await check('Sélection et vol de caméra vers la Terre', async () => {
   await ev(() => { const g = window.__SUPERESSENCE__.game; const e = g.world.bodies.find((b) => b.name === 'Terre'); g.focus(`b${e.id}`); });
-  await wait(4500);
+  await wait(7000);
   const d = await ev(() => { const g = window.__SUPERESSENCE__.game; const e = g.selectedBody(); const r = g.engine.rig; return Math.hypot(r.target.x - e.pos.x, r.target.y - e.pos.y, r.target.z - e.pos.z) / (e.radius / 1.496e8); });
   assert(d < 2, `caméra à ${d} rayons de la cible`);
   assert(await page.isVisible('[data-testid=planet-mass]'), 'éditeur de planète absent');
@@ -103,9 +103,11 @@ await check('Modification de planète en direct (eau, pression) avec conséquenc
     const sun = g.world.primary();
     g.history.record('test');
     g.world.placeInOrbit(e, sun, 0.45);
+    g.setSpeedIndex(7);
     return e.temperature;
   });
   await wait(4000);
+  await ev(() => window.__SUPERESSENCE__.game.setSpeedIndex(3));
   const after = await ev(() => { const g = window.__SUPERESSENCE__.game; return g.selectedBody().temperature; });
   assert(after > r + 30, `température inchangée (${r} → ${after})`);
   await ev(() => window.__SUPERESSENCE__.game.undo());
@@ -114,8 +116,10 @@ await check('Modification de planète en direct (eau, pression) avec conséquenc
 });
 
 await check('Saturne et ses anneaux', async () => {
-  await ev(() => { const g = window.__SUPERESSENCE__.game; const s = g.world.bodies.find((b) => b.name === 'Saturne'); g.focus(`b${s.id}`); });
-  await wait(4500);
+  await ev(() => { const g = window.__SUPERESSENCE__.game; const s = g.world.bodies.find((b) => b.name === 'Saturne'); g.focus(`b${s.id}`); g.engine.rig.pitch = 0.3; });
+  await wait(8000);
+  const T = await ev(() => window.__SUPERESSENCE__.game.selectedBody().temperature);
+  assert(T > 60 && T < 200, `température de Saturne aberrante : ${T}`);
   await shot('04-saturne');
 });
 
@@ -181,7 +185,7 @@ await check('Fusion de trous noirs avec ondes gravitationnelles', async () => {
     const b = g.world.bodies.find((x) => x.kind === 'blackhole' && x.mass > 1e6);
     g.select(`b${b.id}`);
     g.act('bhbinary');
-    g.setSpeedIndex(4);
+    g.setSpeedIndex(7);
   });
   let merged = false;
   for (let i = 0; i < 40 && !merged; i++) {
@@ -322,7 +326,7 @@ await check('Laboratoire atomique : atomes, fusion, chimie', async () => {
 
 await check('Échelle subatomique', async () => {
   await ev(() => window.__SUPERESSENCE__.game.jumpToLevel('subatomic'));
-  await wait(3000);
+  await wait(6000);
   const lvl = await ev(() => window.__SUPERESSENCE__.game.level);
   await shot('18-subatomique');
   assert(lvl === 'subatomic', lvl);
@@ -335,7 +339,7 @@ await check('Big Bang : génération, lecture, époques, adoption', async () => 
   for (let i = 0; i < 60; i++) { await wait(500); if (await ev(() => !!window.__SUPERESSENCE__.game.views.bigbang.field)) break; }
   const halos = await ev(() => window.__SUPERESSENCE__.game.views.bigbang.field?.halos.length ?? 0);
   assert(halos > 0, 'aucun halo');
-  for (const [p, name] of [[0.3, '19-bigbang-plasma'], [0.86, '20-bigbang-recombinaison'], [0.93, '21-bigbang-premieres-etoiles'], [1, '22-bigbang-galaxies']]) {
+  for (const [p, name] of [[0.3, '19-bigbang-plasma'], [0.875, '20-bigbang-recombinaison'], [0.95, '21-bigbang-premieres-etoiles'], [1, '22-bigbang-galaxies']]) {
     await ev((v) => { const b = window.__SUPERESSENCE__.game.views.bigbang; b.progress = v; b.playing = false; }, p);
     await wait(2500);
     await shot(name);
@@ -355,8 +359,8 @@ await check('Big Bang : génération, lecture, époques, adoption', async () => 
 await check('Valeurs invalides dans l\'interface', async () => {
   await ev(async () => { const g = window.__SUPERESSENCE__.game; await g.jumpToLevel('system'); });
   await wait(1500);
-  await ev(() => { const g = window.__SUPERESSENCE__.game; const e = g.world.bodies.find((b) => b.name === 'Terre'); g.select(`b${e.id}`); });
-  await wait(600);
+  await ev(() => { const g = window.__SUPERESSENCE__.game; const e = g.world.bodies.find((b) => b.planet && b.kind === 'planet') ?? g.world.bodies.find((b) => b.planet); g.select(`b${e.id}`); });
+  await wait(800);
   const num = page.locator('[data-testid=planet-mass]').locator('xpath=..').locator('input.num');
   await num.fill('abc');
   await num.press('Enter');
@@ -366,7 +370,8 @@ await check('Valeurs invalides dans l\'interface', async () => {
   const m = await ev(() => window.__SUPERESSENCE__.game.selectedBody().mass);
   assert(Number.isFinite(m) && m > 0, `masse invalide ${m}`);
   const r = await ev(() => { const g = window.__SUPERESSENCE__.game; return g.createAt({ x: NaN, y: 0, z: 0 }); });
-  return `masse conservée finie (${m.toExponential(2)}), création à NaN → ${r}`;
+  assert(r === null, 'création acceptée à une position NaN');
+  return `masse conservée finie (${m.toExponential(2)}), création à NaN refusée`;
 });
 
 await check('Performances avec 300 corps', async () => {
@@ -383,7 +388,7 @@ await check('Performances avec 300 corps', async () => {
     return { n: g.world.bodies.length, ms: (performance.now() - t0) / 20 };
   });
   await wait(1500);
-  await shot('24-300-corps');
+  await page.screenshot({ path: `${OUT}/24-300-corps.png`, timeout: 120000 });
   assert(r.ms < 1500, `${r.ms} ms par image`);
   return `${r.n} corps, ${r.ms.toFixed(0)} ms/image (rendu logiciel SwiftShader)`;
 });

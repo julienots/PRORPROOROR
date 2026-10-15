@@ -199,7 +199,8 @@ export class BigBangView implements View {
   timeAt(progress: number): number {
     const tEndGyr = Number.isFinite(this.history.tEnd) ? this.history.tEnd : Number.isFinite(this.history.age) ? this.history.age : 13.8;
     const lEnd = Math.log10(tEndGyr * 1e9 * YEAR_S);
-    return Math.pow(10, -43 + clamp(progress, 0, 1) * (lEnd + 43));
+    // échelle log déformée (p^0,6) : davantage de place pour les époques tardives
+    return Math.pow(10, -43 + Math.pow(clamp(progress, 0, 1), 0.6) * (lEnd + 43));
   }
 
   /** Facteur d'échelle à t (s) : ère radiative analytique puis intégration de Friedmann. */

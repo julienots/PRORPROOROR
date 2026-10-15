@@ -182,7 +182,7 @@ export function createDiskMaterial(): THREE.ShaderMaterial {
         float ang = atan(vP.y, vP.x);
         float om = 1.0 / (r * sqrt(2.0 * r));
         float n = fbm3(vec3(r * 0.8, cos(ang - time * om * 3.0) * 2.0, sin(ang - time * om * 3.0) * 2.0), 4) * 0.5 + 0.5;
-        vec3 col = blackbody(temp * f * 2.2) * f * (0.5 + n) * bright * 6.0;
+        vec3 col = blackbody(temp * f * 2.2) * f * (0.5 + n) * bright * 1.6;
         float a = smoothstep(outer, outer * 0.6, r);
         gl_FragColor = vec4(col * a, 1.0);
       }`,

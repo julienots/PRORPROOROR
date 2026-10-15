@@ -155,13 +155,13 @@ export class Game {
 
   private loop = (now: number) => {
     requestAnimationFrame(this.loop);
-    const dt = clamp((now - this.lastT) / 1000, 0, 0.1);
+    const real = clamp((now - this.lastT) / 1000, 0, 0.5);
     this.lastT = now;
-    this.frame(dt);
+    this.frame(Math.min(real, 0.1), real);
   };
 
   /** Une image : simulation, caméra, rendu. Public pour les tests. */
-  frame(dt: number): void {
+  frame(dt: number, realDt = dt): void {
     this.realTime += dt;
     this.frameCount++;
     this.universe.stats.playTimeS += dt;
@@ -192,8 +192,8 @@ export class Game {
     }
     this.world.updateMergers(dt);
     this.updateCameraLimits();
-    this.engine.rig.update(dt);
-    this.view.update(dt);
+    this.engine.rig.update(realDt);
+    this.view.update(realDt);
     this.engine.render(this.view.scene, dt);
     this.bus.emit('frame', this.frameCount);
   }
@@ -747,6 +747,10 @@ export class Game {
 
   /** Crée l'objet défini par `creation` à une position (UA). Retourne l'identifiant. */
   createAt(pos: Vec3, spec: CreationSpec = this.creation): number | null {
+    if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) {
+      this.toast('Position de création invalide.', 'error');
+      return null;
+    }
     const s = spec;
     let body = null;
     let label = '';
@@ -925,7 +929,7 @@ export class Game {
           const c = makeBlackHole({ mass: b.mass * 0.7, spin: 0.5 });
           c.createdBy = 'player';
           w.add(c);
-          w.placeInOrbit(c, b, Math.max(0.01, km2au(b.radius) * 3000), 10, 0);
+          w.placeInOrbit(c, b, Math.max(0.002, km2au(b.radius) * 400), 10, 0);
           this.toast('Binaire formée : le rayonnement gravitationnel (amplifié par le pouvoir divin) va la faire spiraler.', 'divine');
         }
         break;

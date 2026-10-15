@@ -782,7 +782,9 @@ export class SystemView implements View {
       t.line.geometry.setDrawRange(0, t.n);
       pos.needsUpdate = true;
       col.needsUpdate = true;
-      t.line.visible = this.showTrails;
+      // la traînée d'un astre vu de près traverserait son propre disque : on la masque
+      const relB = Math.hypot(b.pos.x - eye.x, b.pos.y - eye.y, b.pos.z - eye.z);
+      t.line.visible = this.showTrails && km2au(b.radius) / Math.max(relB, 1e-12) < 0.02;
     }
   }
 
@@ -794,7 +796,8 @@ export class SystemView implements View {
     const dist = rel.length();
     const r = b.radius * KM_UNIT * (b.kind === 'blackhole' ? 3 : 1);
     const px = (r / Math.max(dist, 1e-9)) * pf;
-    this.selRing.visible = true;
+    // de très près (trou noir, gros plan planétaire), l'anneau gênerait la vue
+    this.selRing.visible = px < 250 && !(b.kind === 'blackhole' && px > 6);
     this.selRing.position.copy(rel);
     const s = Math.max(r * 2.6, this.worldSizeForPixels(Math.max(28, px * 2.6), dist));
     this.selRing.scale.set(s, s, s);

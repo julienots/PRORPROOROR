@@ -115,7 +115,7 @@ void main() {
     col += vColor * diff * lightColor[i] * sh;
     if (vWater > 0.5) {
       vec3 H = normalize(L + V);
-      col += lightColor[i] * pow(max(dot(N, H), 0.0), 90.0) * 0.9 * sh * step(0.0, ndl);
+      col += lightColor[i] * pow(max(dot(N, H), 0.0), 120.0) * 0.35 * sh * step(0.0, ndl);
     }
     lit += max(ndl, 0.0) * sh;
   }

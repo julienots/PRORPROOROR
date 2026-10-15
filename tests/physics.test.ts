@@ -322,3 +322,18 @@ describe('Performances', () => {
     expect(dt).toBeLessThan(200);
   });
 });
+
+describe('Trous noirs à forte accélération du temps', () => {
+  it('mode Kepler : la binaire spirale (Peters) et fusionne', () => {
+    const w = new World();
+    w.settings.integration = 'kepler';
+    w.settings.gwBoost = 1e10;
+    const a = w.add(makeBlackHole({ mass: 4e6 }), true);
+    const b = makeBlackHole({ mass: 2e6 });
+    w.add(b, true);
+    w.placeInOrbit(b, a, 30);
+    for (let i = 0; i < 50 && w.bodies.length > 1; i++) w.step(1);
+    expect(w.bodies.filter((x) => x.kind === 'blackhole').length).toBe(1);
+    expect(w.events.some((e) => e.type === 'bhmerger')).toBe(true);
+  });
+});

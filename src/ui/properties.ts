@@ -551,7 +551,7 @@ export class PropertiesPanel {
     );
     const st = () => bb.state;
     const pos = slider({ label: 'Chronologie (échelle logarithmique du temps)', min: 0, max: 1, value: bb.progress, step: 0.001, testid: 'bb-progress', format: (v) => `${(v * 100).toFixed(1)} %`, onInput: (v) => { bb.progress = v; bb.playing = false; } });
-    this.live.push(() => { if (bb.playing) pos.setValue(bb.progress); });
+    this.live.push(() => pos.setValue(bb.progress));
     this.section('Lecture',
       h('div', { class: 'btnrow wrap' },
         button('▶ Déclencher / lire', () => bb.play(), 'primary big', undefined, 'bb-play'),

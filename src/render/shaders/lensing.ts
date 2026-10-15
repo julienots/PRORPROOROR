@@ -38,7 +38,8 @@ ${NOISE_GLSL}
 ${BLACKBODY_GLSL}
 
 vec3 viewDir(vec2 uv) {
-  vec4 p = projInv * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
+  // plan proche (z = −1) : bien conditionné même avec un plan lointain gigantesque
+  vec4 p = projInv * vec4(uv * 2.0 - 1.0, -1.0, 1.0);
   return normalize(p.xyz / p.w);
 }
 
@@ -91,7 +92,7 @@ vec3 diskEmission(vec3 p, vec3 dir, float rin, float rout, float bright, float t
   float turb = 0.55 + 0.45 * n + 0.2 * sin(r * 3.0 - time * 0.5);
   float fade = smoothstep(rout, rout * 0.6, r) * smoothstep(rin, rin * 1.15, r);
   vec3 col = blackbody(T * g);
-  return col * pow(g, 3.0) * f * turb * fade * bright * 6.0;
+  return col * pow(g, 3.0) * f * turb * fade * bright * 1.6;
 }
 
 void main() {
@@ -180,7 +181,9 @@ void main() {
     float w = smoothstep(R, R * 0.75, bImp);
     outCol = mix(thin, traced, w);
   }
-  gl_FragColor = vec4(outCol, 1.0);
+  // garde-fou : aucune valeur non finie ne doit atteindre le bloom
+  if (!(outCol.r >= 0.0 && outCol.r < 1e6) || !(outCol.g >= 0.0 && outCol.g < 1e6) || !(outCol.b >= 0.0 && outCol.b < 1e6)) outCol = base;
+  gl_FragColor = vec4(min(outCol, vec3(60.0)), 1.0);
 }
 `;
 

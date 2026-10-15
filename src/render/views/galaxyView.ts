@@ -4,7 +4,7 @@ import { blackbodyRGB } from '../../core/color';
 import type { Vec3 } from '../../core/vec';
 import type { GalaxySim, GalaxyParams } from '../../sim/galaxy';
 import { Sky } from '../objects/sky';
-import { glowTexture, ringTexture } from '../objects/common';
+import { ringTexture, softTexture } from '../objects/common';
 import { createHaloMaterial } from '../objects/stellarMesh';
 import { LOGDEPTH_FRAG_HEAD, LOGDEPTH_FRAG_MAIN, LOGDEPTH_VERT_HEAD, LOGDEPTH_VERT_MAIN } from '../objects/common';
 import type { View, PickResult } from './view';
@@ -21,8 +21,8 @@ void main() {
   gl_Position = projectionMatrix * mv;
   float d = max(-mv.z, 1e-6);
   float s = size * scale / d;
-  vA = clamp(s, 0.15, 1.0);
-  gl_PointSize = clamp(s, 1.2, 9.0) * pixelRatio;
+  vA = clamp(0.35 + s * 0.4, 0.35, 1.0);
+  gl_PointSize = clamp(s, 1.4, 9.0) * pixelRatio;
   ${LOGDEPTH_VERT_MAIN}
 }`;
 
@@ -104,7 +104,7 @@ export class GalaxyView implements View {
     geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
     geo.setDrawRange(0, n);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { pixelRatio: { value: 1 }, scale: { value: 4 }, dark: { value: 0 } },
+      uniforms: { pixelRatio: { value: 1 }, scale: { value: 60 }, dark: { value: 0 } },
       vertexShader: STAR_VERT, fragmentShader: STAR_FRAG,
       blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
     });
@@ -152,7 +152,7 @@ export class GalaxyView implements View {
     this.hii.frustumCulled = false;
     this.scene.add(this.hii);
     for (const c of sim.components) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: c.params.type === 'elliptical' ? 0xffd8a8 : 0xffe0b0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.6 }));
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: softTexture(), color: c.params.type === 'elliptical' ? 0xffd8a8 : 0xffe0b0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.45 }));
       this.bulges.push(s);
       this.scene.add(s);
       const h = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), createHaloMaterial());

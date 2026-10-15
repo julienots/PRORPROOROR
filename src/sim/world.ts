@@ -236,6 +236,7 @@ export class World {
     }
     if (useKepler) {
       this.keplerStep(dt);
+      this.applyGWSecular(dt);
       report.mode = 'kepler';
       report.achieved = dt;
       report.substeps = 1;
@@ -826,7 +827,7 @@ export class World {
         const A = bhs[i], B = bhs[j];
         const r = vsub(B.pos, A.pos);
         const d = vlen(r);
-        if (d > 2 || d === 0) continue;
+        if (d === 0) continue;
         // Perte d'énergie orbitale (Peters), amplifiée par le pouvoir divin
         const P = gwPower(A.mass, B.mass, d); // W
         const PSim = (P / 1.98847e30 / (1.495978707e11 ** 2)) * (3.15576e7 ** 3) * this.settings.gwBoost; // M☉ UA²/an³
@@ -842,7 +843,7 @@ export class World {
         A.vel.x += dv.x * (B.mass / mt); A.vel.y += dv.y * (B.mass / mt); A.vel.z += dv.z * (B.mass / mt);
         B.vel.x -= dv.x * (A.mass / mt); B.vel.y -= dv.y * (A.mass / mt); B.vel.z -= dv.z * (A.mass / mt);
         // signal GW pour l'analyse
-        if (this.gwSignals.length === 0 || this.gwSignals[this.gwSignals.length - 1].age > 0.01) {
+        if (P > 1e20 && (this.gwSignals.length === 0 || this.gwSignals[this.gwSignals.length - 1].age > 0.01)) {
           const f = gwFrequency(A.mass, B.mass, d);
           this.gwSignals.push({ t: this.time, pos: this.comPos(A, B), strain: P, freq: f, amp: clamp(Math.log10(P) - 20, 0, 40), age: 0 });
           if (this.gwSignals.length > 400) this.gwSignals.shift();
@@ -852,6 +853,43 @@ export class World {
         if (A.kind === 'blackhole' && B.kind === 'blackhole' && d < threshold) {
           this.startBHMerger(A.mass >= B.mass ? A : B, A.mass >= B.mass ? B : A);
           return;
+        }
+      }
+    }
+  }
+
+  /**
+   * Mode séculaire : décroissance orbitale moyenne de Peters (orbite circulaire)
+   * da/dt = −(64/5) G³ m₁m₂(m₁+m₂) / (c⁵ a³), amplifiée par le pouvoir divin.
+   */
+  private applyGWSecular(dt: number): void {
+    const bhs = this.bodies.filter((b) => b.kind === 'blackhole' || b.kind === 'neutronstar');
+    if (bhs.length < 2) return;
+    const c5 = Math.pow(C_AU_YR, 5);
+    for (let i = 0; i < bhs.length; i++) {
+      for (let j = i + 1; j < bhs.length; j++) {
+        const A = bhs[i], B = bhs[j];
+        if (!this.bodies.includes(A) || !this.bodies.includes(B)) continue;
+        const r = vsub(B.pos, A.pos);
+        const a = vlen(r);
+        if (a === 0) continue;
+        const k = ((64 / 5) * Math.pow(G_SIM, 3) * A.mass * B.mass * (A.mass + B.mass)) / c5 * this.settings.gwBoost;
+        // a⁴(t) = a₀⁴ − 4 k t
+        const a4 = Math.pow(a, 4) - 4 * k * dt;
+        const threshold = Math.max(km2au(A.radius + B.radius) * 30, 2e-5);
+        if (a4 <= Math.pow(threshold, 4)) {
+          this.startBHMerger(A.mass >= B.mass ? A : B, A.mass >= B.mass ? B : A);
+          return;
+        }
+        const aNew = Math.pow(a4, 0.25);
+        if (aNew / a > 0.999999) continue;
+        const com = this.comPos(A, B);
+        const vcom = vscale(this.momentumOf(A, B), 1 / (A.mass + B.mass));
+        const s = aNew / a, sv = Math.sqrt(a / aNew);
+        for (const [o, w] of [[A, -B.mass / (A.mass + B.mass)], [B, A.mass / (A.mass + B.mass)]] as [Body, number][]) {
+          o.pos = { x: com.x + r.x * w * s, y: com.y + r.y * w * s, z: com.z + r.z * w * s };
+          const rv = vsub(o.vel, vcom);
+          o.vel = { x: vcom.x + rv.x * sv, y: vcom.y + rv.y * sv, z: vcom.z + rv.z * sv };
         }
       }
     }
@@ -1175,7 +1213,8 @@ export class World {
     }
     const teq = equilibriumTemperature(flux, p.albedo);
     const internal = p.gasGiant ? 60 * Math.cbrt(b.mass / 9.5e-4) : 15 * p.volcanism;
-    const target = Math.max(3, teq + greenhouseWarming(p) + internal) + (b.heat ?? 0);
+    // géantes gazeuses : pas de surface, la « température » est celle de la haute atmosphère (pas d'effet de serre)
+    const target = Math.max(3, teq + (p.gasGiant ? 0 : greenhouseWarming(p)) + internal) + (b.heat ?? 0);
     // inertie thermique (~ 50 ans) ; équilibre immédiat à la première évaluation
     if (!this.thermalInit.has(b)) {
       this.thermalInit.add(b);
