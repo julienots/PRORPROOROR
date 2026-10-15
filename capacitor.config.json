@@ -1,0 +1,7 @@
+{
+  "appId": "com.superessence.godofthecosmos",
+  "appName": "SUPERESSENCE",
+  "webDir": "dist",
+  "android": { "allowMixedContent": false, "webContentsDebuggingEnabled": false },
+  "server": { "androidScheme": "https" }
+}

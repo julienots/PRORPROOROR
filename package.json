@@ -16,6 +16,9 @@
     "three": "0.180.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/core": "^7.6.9",
     "@types/three": "0.180.0",
     "playwright-core": "1.56.1",
     "typescript": "5.9.3",
